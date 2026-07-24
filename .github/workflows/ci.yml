@@ -1,0 +1,148 @@
+name: CI
+
+# Runs on every push to main and on every pull request targeting it. Pull
+# request runs are what gate a merge; the push run re-validates main after it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push to the same branch makes the previous run obsolete; cancelling it
+# keeps the queue short without losing signal.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  UV_VERSION: "0.9.9"
+
+jobs:
+  # --------------------------------------------------------------------
+  # Static verification. Runs in parallel with 'test'.
+  # --------------------------------------------------------------------
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          # Keyed on uv.lock, so the cache is reused until dependencies
+          # actually change.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # Only the dev group: ruff needs neither the project nor its runtime
+      # dependencies, so linting does not pay for scikit-learn.
+      - name: Install lint dependencies
+        run: uv sync --frozen --only-group dev
+
+      - name: ruff check
+        run: uv run --no-sync ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: uv run --no-sync ruff format --check .
+
+  # --------------------------------------------------------------------
+  # Test suite. Runs in parallel with 'lint'.
+  # --------------------------------------------------------------------
+  test:
+    name: test (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # The suite exercises the API against a synthetic stand-in model, so the
+      # training libraries (pandas, pyarrow, hub client) are not needed here.
+      - name: Install test dependencies
+        run: uv sync --frozen --no-group train
+
+      # Coverage is scoped to src/api because that is what this suite tests:
+      # an API contract suite, not a model-quality suite. The data and training
+      # modules are exercised for real by the 'build' job, which runs the full
+      # download + train pipeline inside the image.
+      - name: pytest
+        run: |
+          uv run --no-sync pytest -v \
+            --cov=src/api \
+            --cov-report=term-missing
+
+  # --------------------------------------------------------------------
+  # Image build plus smoke test. Only worth running once the code is known
+  # to lint and pass its tests, so it waits on both.
+  # --------------------------------------------------------------------
+  build:
+    name: build (docker + smoke test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v5
+
+      # No layer cache on purpose. A cold build measures at ~40 s locally, of
+      # which the download + train stage is ~13 s, so caching would buy little
+      # while risking a run that ships a stale model instead of proving the
+      # training path still works. See README, section "Etapa 2".
+      - name: Build image
+        run: docker build -t tc-fase3-api:ci .
+
+      - name: Start container
+        run: docker run -d --name tc-api -p 8000:8000 tc-fase3-api:ci
+
+      # Readiness, not just liveness: the API answers /health even when the
+      # model failed to load, reporting model_loaded=false. That has to fail.
+      - name: Wait for /health to report the model loaded
+        run: |
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS http://localhost:8000/health 2>/dev/null || true)
+            if [ -n "$body" ] && echo "$body" | grep -q '"model_loaded":true'; then
+              echo "ready after ${attempt}s: $body"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::/health did not report model_loaded=true within 30s"
+          echo "last response: ${body:-<none>}"
+          docker logs tc-api
+          exit 1
+
+      # Proves the artifact trained during the build actually serves: a valid
+      # prediction is one of the five labels the service is allowed to return.
+      - name: Smoke test /predict
+        run: |
+          response=$(curl -fsS -X POST http://localhost:8000/predict \
+            -H 'Content-Type: application/json' \
+            -d '{"text":"Acute myocardial infarction treated with coronary angioplasty."}')
+          echo "$response"
+          echo "$response" | grep -qE '"label":[1-5]' || {
+            echo "::error::/predict did not return a label in 1..5"
+            docker logs tc-api
+            exit 1
+          }
+
+      - name: Container logs
+        if: always()
+        run: docker logs tc-api || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f tc-api || true
