@@ -6,12 +6,14 @@ ciclo de vida completo do modelo em produção: preparação de dados, treino,
 serving, CI/CD, orquestração, monitoração e otimização de latência.
 
 **Status:** Etapa 1 concluída (decisão arquitetural + API em Docker + baseline
-de latência).
+de latência). Etapa 2 em andamento: pipeline de CI/CD no ar, DAG do Airflow
+pendente.
 
 | Entrega | Estado |
 |---|---|
 | Etapa 1 — Decisão arquitetural e API inicial | ✅ concluída |
-| Etapa 2 — CI/CD (GitHub Actions) + DAG Airflow | ⏳ pendente |
+| Etapa 2 — CI/CD (GitHub Actions) | ✅ concluída |
+| Etapa 2 — DAG de retreino (Airflow) | ⏳ pendente |
 | Etapa 3 — Prometheus + Grafana via Docker Compose | ⏳ pendente |
 | Etapa 4 — Otimização de latência (ONNX/quantização) + vídeo | ⏳ pendente |
 
@@ -256,6 +258,18 @@ protocolo da medição.
 Parâmetros: `--requests` (200), `--warmup` (20, descartadas), `--url`,
 `--output`.
 
+### 3.6 Lint e formatação
+
+```bash
+uv run ruff check .          # regras de lint
+uv run ruff format --check . # formatação (só verifica)
+uv run ruff check --fix .    # corrige o que é seguro corrigir
+uv run ruff format .         # aplica a formatação
+```
+
+São exatamente os dois comandos que o job `lint` do CI roda, então o que passa
+aqui passa lá. A configuração está em `pyproject.toml`, em `[tool.ruff]`.
+
 ---
 
 ## 4. Resultados da Etapa 1
@@ -283,9 +297,96 @@ do Hugging Face ficam no grupo `train` e não entram no runtime.
 
 ---
 
-## 5. Estrutura do projeto
+## 5. CI/CD (Etapa 2)
+
+Workflow em `.github/workflows/ci.yml`, disparado em **push para `main`** e em
+**pull request** para `main`. Três jobs:
+
+| Job | O que faz | Depende de |
+|---|---|---|
+| `lint` | `ruff check` + `ruff format --check` | — |
+| `test` | os 18 testes do pytest, com cobertura no log | — |
+| `build` | build da imagem Docker, sobe o container e valida `/health` e `/predict` | `lint` e `test` |
+
+`lint` e `test` rodam em paralelo; `build` só começa quando os dois passam.
+A ordem é intencional: build de imagem é o passo caro, e não faz sentido pagar
+por ele para um código que nem passa no lint.
+
+### 5.1 Por que três jobs e não um script só
+
+O enunciado pede no mínimo duas automações (verificação de código e testes).
+O terceiro job existe porque lint e teste, sozinhos, não provam que **a imagem
+que vai para produção funciona** — a suíte de testes roda contra um modelo
+sintético em memória, nunca contra o artefato real. O job `build` fecha essa
+lacuna: constrói a imagem, sobe o container e exige que `/health` responda
+`model_loaded: true` e que `/predict` devolva um rótulo válido.
+
+A verificação de `/health` checa **readiness, não liveness**. A API sobe mesmo
+quando o modelo falha ao carregar — de propósito, para conseguir reportar o
+problema em vez de entrar em crash loop. Um teste que só checasse HTTP 200
+passaria com o modelo quebrado.
+
+### 5.2 O job `build` treina o modelo do zero — e por quê
+
+O `Dockerfile` baixa o corpus e treina o baseline durante o build (estágio
+`trainer`), então o job `build` no CI **treina de verdade**, sem atalho. A
+decisão foi tomada medindo, não por suposição:
+
+```bash
+docker build --no-cache -t tc-fase3-api:bench .
+```
+
+| Etapa do build (medida local, `--no-cache`) | Tempo |
+|---|---|
+| `uv sync` das dependências de serving | 9,7 s |
+| `uv sync` das dependências de treino | 18,3 s |
+| **download do corpus + prepare + treino** | **12,6 s** |
+| exportação da imagem | 5,0 s |
+| **total** | **~39 s** |
+
+O treino custa 12,6 s de um build de ~39 s. Um runner do GitHub Actions é mais
+lento que a máquina local (2 vCPUs), então na prática espera-se algo entre 1 e
+3 minutos — perfeitamente viável. **Não há motivo para pular o treino no CI**,
+e pular seria pior: o job deixaria de cobrir justamente o caminho de
+`data/prepare.py` e `models/baseline.py`, que a suíte de testes não exercita.
+
+Esse número é pequeno porque o modelo é um TF-IDF + regressão logística sobre
+~14 mil abstracts. A conclusão **não** se transfere para um modelo maior: se o
+treino passasse da casa dos minutos, o caminho seria treinar fora do build
+(job agendado ou DAG do Airflow), publicar o artefato em um registry e fazer o
+`Dockerfile` apenas baixá-lo — que é exatamente o desenho previsto para a
+etapa de retreino.
+
+### 5.3 Cache
+
+O cache de dependências fica em `astral-sh/setup-uv` com `enable-cache: true`,
+com chave em `uv.lock`: enquanto o lock não muda, `lint` e `test` reaproveitam
+os pacotes já baixados.
+
+O build da imagem **não** usa cache de camadas, deliberadamente. O ganho seria
+pequeno (~39 s a frio) e o risco é real: uma camada de treino em cache faria o
+job publicar um modelo velho e ainda assim reportar sucesso, que é exatamente
+o tipo de falha silenciosa que este job existe para pegar.
+
+### 5.4 Cobertura
+
+O job `test` reporta cobertura de `src/api` (97%), não do `src/` inteiro. A
+suíte é de **contrato de API**, não de qualidade de modelo — medir contra
+`src/` inteiro produziria ~17%, um número que diz mais sobre o escopo da suíte
+do que sobre o que ela cobre. Os módulos de dados e treino são exercitados de
+ponta a ponta pelo job `build`, que roda o pipeline completo dentro da imagem.
+
+Um dos 18 testes (`test_real_baseline_model_serves_predictions`) é pulado no
+CI: ele exige `models/baseline.joblib`, que não é versionado. No CI o placar é
+**17 passaram, 1 pulado**; localmente, com o modelo treinado, passam os 18.
+
+---
+
+## 6. Estrutura do projeto
 
 ```
+.github/workflows/
+  ci.yml                    # CI: lint, testes e build da imagem (Etapa 2)
 src/
   labels.py                 # vocabulário de classes, sem dependências pesadas
   api/main.py               # FastAPI: /predict e /health
@@ -309,7 +410,7 @@ com revisão fixa em vez de versionar parquet) está na seção 7 do dataset car
 
 ---
 
-## 6. Referências
+## 7. Referências
 
 - Enunciado e critérios: [`docs/_conhecimento/07-tech-challenge-fase3.md`](docs/_conhecimento/07-tech-challenge-fase3.md)
 - Mapa de aulas por critério: [`docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md`](docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md)
