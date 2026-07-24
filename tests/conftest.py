@@ -19,7 +19,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from src.data.prepare import CONDITION_NAMES
+from src.labels import CONDITION_NAMES
 
 REAL_MODEL_PATH = Path("models/baseline.joblib")
 

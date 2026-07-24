@@ -1,0 +1,19 @@
+# Build context stays minimal: data and model artifacts are produced inside
+# the trainer stage, never copied from the host.
+.git/
+.github/
+.venv/
+.venv-extract/
+data/
+models/
+reports/
+docs/
+tests/
+scripts/
+notebooks/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+main.py

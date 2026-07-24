@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import MAX_TEXT_CHARS
-from src.data.prepare import CONDITION_NAMES
+from src.labels import CONDITION_NAMES
 
 SAMPLE_TEXTS = [
     "Malignant carcinoma of the breast treated with adjuvant chemotherapy.",

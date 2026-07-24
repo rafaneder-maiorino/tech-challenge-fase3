@@ -1,0 +1,42 @@
+{
+  "measured_at": "2026-07-24T02:37:13+00:00",
+  "target_url": "http://localhost:8000",
+  "protocol": {
+    "requests": 200,
+    "warmup_requests": 20,
+    "concurrency": 1,
+    "mode": "sequential",
+    "payload_chars": 1056,
+    "payload_sha256": "51b3174ab8c88e3ecd9ac634d10b3f822699a74ba0909730fd2f4c1de961253b"
+  },
+  "model": {
+    "version": "baseline-tfidf-logreg",
+    "path": "/app/models/baseline.joblib"
+  },
+  "environment": {
+    "machine": "arm64",
+    "processor": "arm",
+    "platform": "macOS-15.5-arm64-arm-64bit",
+    "python_version": "3.11.15"
+  },
+  "client_latency": {
+    "count": 200,
+    "mean_ms": 1.4580879174172878,
+    "stdev_ms": 0.15872890620821795,
+    "min_ms": 1.2005411554127932,
+    "p50_ms": 1.3929579872637987,
+    "p95_ms": 1.7906250432133675,
+    "p99_ms": 1.9202500116080046,
+    "max_ms": 2.095750067383051
+  },
+  "server_latency": {
+    "count": 200,
+    "mean_ms": 0.546455,
+    "stdev_ms": 0.028739480924663455,
+    "min_ms": 0.473,
+    "p50_ms": 0.541,
+    "p95_ms": 0.597,
+    "p99_ms": 0.624,
+    "max_ms": 0.636
+  }
+}

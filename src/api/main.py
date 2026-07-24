@@ -21,7 +21,7 @@ import joblib
 from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
-from src.data.prepare import CONDITION_NAMES
+from src.labels import CONDITION_NAMES
 
 LOGGER = logging.getLogger(__name__)
 

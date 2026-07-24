@@ -1,24 +1,33 @@
 [project]
 name = "tech-challenge-fase3"
 version = "0.1.0"
-description = "Add your description here"
+description = "Triagem de laudos médicos — Tech Challenge FIAP Fase 3"
 readme = "README.md"
 requires-python = ">=3.11"
+# Serving only. Everything the API container needs and nothing else, so the
+# runtime image stays slim. Training-time libraries live in the 'train' group.
 dependencies = [
     "fastapi>=0.139.2",
-    "huggingface-hub>=1.24.0",
     "joblib>=1.5.3",
-    "pandas>=3.0.5",
-    "pyarrow>=25.0.0",
     "scikit-learn>=1.9.0",
     "uvicorn[standard]>=0.51.0",
 ]
 
 [dependency-groups]
+train = [
+    "huggingface-hub>=1.24.0",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.0",
+]
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]
+
+[tool.uv]
+# Local development gets everything; the Docker runtime stage opts out with
+# --no-default-groups.
+default-groups = ["dev", "train"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

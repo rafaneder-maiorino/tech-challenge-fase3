@@ -27,19 +27,18 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from src.data.download import ensure_dataset, quiet_http_logs
+from src.labels import CONDITION_NAMES, LABEL_COLUMN, TEXT_COLUMN
 
 LOGGER = logging.getLogger(__name__)
 
-TEXT_COLUMN = "medical_abstract"
-LABEL_COLUMN = "condition_label"
-
-CONDITION_NAMES = {
-    1: "neoplasms",
-    2: "digestive system diseases",
-    3: "nervous system diseases",
-    4: "cardiovascular diseases",
-    5: "general pathological conditions",
-}
+# Re-exported so existing callers can keep importing them from here.
+__all__ = [
+    "CONDITION_NAMES",
+    "LABEL_COLUMN",
+    "TEXT_COLUMN",
+    "prepare",
+    "resolve_labels",
+]
 
 DEFAULT_RAW_DIR = Path("data/raw_abstracts")
 DEFAULT_OUTPUT_DIR = Path("data/processed")
