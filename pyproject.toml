@@ -22,12 +22,58 @@ train = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.0",
 ]
 
 [tool.uv]
 # Local development gets everything; the Docker runtime stage opts out with
 # --no-default-groups.
 default-groups = ["dev", "train"]
+
+[tool.ruff]
+# 88 is what the existing code was already written to; ruff format and the
+# E501 lint rule share this number so the two never disagree.
+line-length = 88
+target-version = "py311"
+# docs/ holds verbatim transcriptions of the course PDFs. Ruff formats Python
+# blocks inside Markdown, which would silently rewrite quoted material, so the
+# whole directory is off limits.
+extend-exclude = [".venv-extract", "data", "docs", "models", "reports"]
+
+[tool.ruff.lint]
+# Beyond ruff's default (E4/E7/E9 + F): import order, modernisation, bug
+# patterns, comprehension and naming hygiene, plus docstring presence on the
+# public surface. Deliberately not the full rule set — the point is a gate
+# that catches real defects, not a style debate in code review.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "D",    # pydocstyle
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "D203",  # conflicts with D211 (blank line before class docstring)
+    "D213",  # conflicts with D212 (summary on the second line)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test names and fixtures document themselves; a docstring per assertion adds
+# noise without adding information.
+"tests/**" = ["D103"]
+# Throwaway inspection and extraction utilities, not part of the delivered
+# pipeline.
+"scripts/**" = ["D"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

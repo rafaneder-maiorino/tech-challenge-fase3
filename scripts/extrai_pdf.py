@@ -6,6 +6,7 @@ Uso:
 Localiza o PDF via pathlib/glob (evita problemas de normalização Unicode NFD do
 macOS) e imprime o texto delimitado por marcadores de página. Somente leitura.
 """
+
 import logging
 import sys
 from pathlib import Path

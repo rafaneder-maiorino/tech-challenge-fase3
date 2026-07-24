@@ -6,6 +6,7 @@ se o texto é extraível (PDF nativo) ou provável scan/imagem (exigiria OCR).
 
 Somente leitura. Não altera nada em ~/estudos.
 """
+
 import json
 import logging
 import re
@@ -50,7 +51,7 @@ def analisa_pdf(caminho: Path) -> dict:
             info["chars_total"] = total
             paginas_amostradas = min(5, info["paginas"]) or 1
             info["extraivel"] = (total / paginas_amostradas) >= CHAR_THRESHOLD_PER_PAGE
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         info["erro"] = f"{type(e).__name__}: {e}"
         log.error("Falha ao abrir %s: %s", caminho.name, e)
     return info
@@ -65,7 +66,9 @@ def main() -> None:
     total_pdfs = 0
 
     # subpastas de disciplina (ordenadas) + PDFs soltos na raiz
-    subpastas = sorted([p for p in BASE.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+    subpastas = sorted(
+        [p for p in BASE.iterdir() if p.is_dir()], key=lambda p: p.name.lower()
+    )
     for pasta in subpastas:
         pdfs = sorted(pasta.glob("*.pdf"), key=lambda p: p.name.lower())
         itens = []
@@ -86,7 +89,9 @@ def main() -> None:
     log.info("TOTAL: %d PDFs", total_pdfs)
 
     out = Path(__file__).parent / "inventario.json"
-    out.write_text(json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8")
+    out.write_text(
+        json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     log.info("Inventário salvo em %s", out)
 
 

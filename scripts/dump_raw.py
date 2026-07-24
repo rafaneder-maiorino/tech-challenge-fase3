@@ -7,6 +7,7 @@ e escreve um .txt por PDF em scripts/_raw/<disciplina>/.
 
 Somente leitura sobre ~/estudos. Saída em scripts/_raw/ (ignorada pelo git).
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,7 +57,9 @@ def dump_pdf(pdf_path: Path, out_path: Path) -> int:
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
-    subpastas = sorted([p for p in BASE.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+    subpastas = sorted(
+        [p for p in BASE.iterdir() if p.is_dir()], key=lambda p: p.name.lower()
+    )
     total = 0
     for pasta in subpastas:
         # nome de saída seguro: normaliza NFC e troca ':' por '_' (pasta de CI/CD)
@@ -69,7 +72,12 @@ def main() -> None:
             out_path = dest / f"{stem}.txt"
             paginas = dump_pdf(pdf, out_path)
             total += 1
-            log.info("%-40s -> %s (%d págs)", pasta.name[:40], out_path.name[:50], paginas)
+            log.info(
+                "%-40s -> %s (%d págs)",
+                pasta.name[:40],
+                out_path.name[:50],
+                paginas,
+            )
 
     # PDFs na raiz (enunciado do TC)
     raiz_dest = OUT / "_raiz"

@@ -97,9 +97,7 @@ class PredictRequest(BaseModel):
         """Reject whitespace-only input, which ``min_length`` alone allows."""
         stripped = value.strip()
         if not stripped:
-            raise ValueError(
-                "text must contain at least one non-whitespace character"
-            )
+            raise ValueError("text must contain at least one non-whitespace character")
         return stripped
 
 

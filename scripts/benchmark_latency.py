@@ -20,7 +20,7 @@ import math
 import platform
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -137,7 +137,7 @@ def benchmark(
         wall_ms, server_ms = run_requests(client, requests_count, payload, "measure")
 
     report = {
-        "measured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "target_url": url,
         "protocol": {
             "requests": requests_count,

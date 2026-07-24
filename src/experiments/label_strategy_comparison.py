@@ -113,11 +113,12 @@ def score(pipeline: Pipeline, frame: pd.DataFrame) -> dict:
     y_pred = pipeline.predict(frame[TEXT_COLUMN])
     per_class = f1_score(y_true, y_pred, labels=LABELS, average=None, zero_division=0)
     return {
-        "n_samples": int(len(frame)),
+        "n_samples": len(frame),
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
         "f1_per_class": {
-            str(label): float(value) for label, value in zip(LABELS, per_class)
+            str(label): float(value)
+            for label, value in zip(LABELS, per_class, strict=True)
         },
         "confusion_matrix": {
             "labels": LABELS,
@@ -138,7 +139,9 @@ def run_strategy(
     for name, frame in splits.items():
         log_distribution(frame, f"{strategy}/{name}")
 
-    LOGGER.info("fitting baseline for '%s' on %d abstracts", strategy, len(splits["train"]))
+    LOGGER.info(
+        "fitting baseline for '%s' on %d abstracts", strategy, len(splits["train"])
+    )
     pipeline = build_pipeline()
     pipeline.fit(splits["train"][TEXT_COLUMN], splits["train"][LABEL_COLUMN])
 
@@ -204,12 +207,22 @@ def log_comparison(results: dict[str, dict], common: dict) -> None:
     row("metric", strategies)
     LOGGER.info("  " + "-" * 73)
 
-    for key, label in (("n_train", "n_train"), ("n_val", "n_val"), ("n_test", "n_test")):
+    for key, label in (
+        ("n_train", "n_train"),
+        ("n_val", "n_val"),
+        ("n_test", "n_test"),
+    ):
         row(label, [f"{results[s][key]}" for s in strategies])
 
     LOGGER.info("  " + "-" * 73)
-    row("validation accuracy", [f"{results[s]['validation']['accuracy']:.4f}" for s in strategies])
-    row("validation macro-F1", [f"{results[s]['validation']['macro_f1']:.4f}" for s in strategies])
+    row(
+        "validation accuracy",
+        [f"{results[s]['validation']['accuracy']:.4f}" for s in strategies],
+    )
+    row(
+        "validation macro-F1",
+        [f"{results[s]['validation']['macro_f1']:.4f}" for s in strategies],
+    )
     row("test accuracy", [f"{results[s]['test']['accuracy']:.4f}" for s in strategies])
     row("test macro-F1", [f"{results[s]['test']['macro_f1']:.4f}" for s in strategies])
 
@@ -218,18 +231,32 @@ def log_comparison(results: dict[str, dict], common: dict) -> None:
     for label in LABELS:
         row(
             f"    {label} - {CONDITION_NAMES[label]}",
-            [f"{results[s]['test']['f1_per_class'][str(label)]:.4f}" for s in strategies],
+            [
+                f"{results[s]['test']['f1_per_class'][str(label)]:.4f}"
+                for s in strategies
+            ],
         )
 
     LOGGER.info("  " + "-" * 73)
     LOGGER.info("  common test subset (n=%d, identical rows):", common["n_samples"])
-    row("    accuracy", [f"{common['strategies'][s]['accuracy']:.4f}" for s in strategies])
-    row("    macro-F1", [f"{common['strategies'][s]['macro_f1']:.4f}" for s in strategies])
+    row(
+        "    accuracy",
+        [f"{common['strategies'][s]['accuracy']:.4f}" for s in strategies],
+    )
+    row(
+        "    macro-F1",
+        [f"{common['strategies'][s]['macro_f1']:.4f}" for s in strategies],
+    )
     LOGGER.info("=" * 76)
 
     for strategy in strategies:
-        LOGGER.info("test confusion matrix [%s] (rows=true, cols=pred, labels=%s):", strategy, LABELS)
-        for label, line in zip(LABELS, results[strategy]["test"]["confusion_matrix"]["matrix"]):
+        LOGGER.info(
+            "test confusion matrix [%s] (rows=true, cols=pred, labels=%s):",
+            strategy,
+            LABELS,
+        )
+        matrix = results[strategy]["test"]["confusion_matrix"]["matrix"]
+        for label, line in zip(LABELS, matrix, strict=True):
             LOGGER.info("  %d %s", label, line)
 
 
