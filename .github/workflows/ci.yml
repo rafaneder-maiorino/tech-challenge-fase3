@@ -38,9 +38,12 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
           # Keyed on uv.lock, so the cache is reused until dependencies
-          # actually change.
+          # actually change. The suffix keeps this job's cache distinct from
+          # the 'test' job's: the two run in parallel and would otherwise race
+          # to reserve the same key, and they install different sets anyway.
           enable-cache: true
           cache-dependency-glob: uv.lock
+          cache-suffix: lint
 
       # Only the dev group: ruff needs neither the project nor its runtime
       # dependencies, so linting does not pay for scikit-learn.
@@ -70,6 +73,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+          cache-suffix: test
 
       # The suite exercises the API against a synthetic stand-in model, so the
       # training libraries (pandas, pyarrow, hub client) are not needed here.
@@ -98,10 +102,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # No layer cache on purpose. A cold build measures at ~40 s locally, of
-      # which the download + train stage is ~13 s, so caching would buy little
+      # No layer cache on purpose. The cold build measures at ~27 s on this
+      # runner, of which download + train is ~15 s, so caching would buy little
       # while risking a run that ships a stale model instead of proving the
-      # training path still works. See README, section "Etapa 2".
+      # training path still works. See README, section 5.2.
       - name: Build image
         run: docker build -t tc-fase3-api:ci .
 

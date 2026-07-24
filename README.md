@@ -330,25 +330,27 @@ passaria com o modelo quebrado.
 
 O `Dockerfile` baixa o corpus e treina o baseline durante o build (estágio
 `trainer`), então o job `build` no CI **treina de verdade**, sem atalho. A
-decisão foi tomada medindo, não por suposição:
+decisão foi tomada medindo, não por suposição — primeiro localmente:
 
 ```bash
 docker build --no-cache -t tc-fase3-api:bench .
 ```
 
-| Etapa do build (medida local, `--no-cache`) | Tempo |
-|---|---|
-| `uv sync` das dependências de serving | 9,7 s |
-| `uv sync` das dependências de treino | 18,3 s |
-| **download do corpus + prepare + treino** | **12,6 s** |
-| exportação da imagem | 5,0 s |
-| **total** | **~39 s** |
+| Etapa do build | Local (`--no-cache`) | Runner do CI |
+|---|---|---|
+| `uv sync` das dependências de serving | 9,7 s | 4,2 s |
+| `uv sync` das dependências de treino | 18,3 s | 5,5 s |
+| **download do corpus + prepare + treino** | **12,6 s** | **15,3 s** |
+| exportação da imagem | 5,0 s | 1,5 s |
+| **build completo** | **~39 s** | **~27 s** |
 
-O treino custa 12,6 s de um build de ~39 s. Um runner do GitHub Actions é mais
-lento que a máquina local (2 vCPUs), então na prática espera-se algo entre 1 e
-3 minutos — perfeitamente viável. **Não há motivo para pular o treino no CI**,
-e pular seria pior: o job deixaria de cobrir justamente o caminho de
-`data/prepare.py` e `models/baseline.py`, que a suíte de testes não exercita.
+O runner sai na frente nos `uv sync` porque tem link muito mais rápido para o
+PyPI; no treino, que é CPU, a máquina local ganha. No fim o build inteiro leva
+**27 s no CI**, e o job `build` fecha em 38 s contando checkout e smoke test.
+
+**Não há motivo para pular o treino**, e pular seria pior: o job deixaria de
+cobrir justamente o caminho de `data/prepare.py` e `models/baseline.py`, que a
+suíte de testes não exercita.
 
 Esse número é pequeno porque o modelo é um TF-IDF + regressão logística sobre
 ~14 mil abstracts. A conclusão **não** se transfere para um modelo maior: se o
@@ -361,12 +363,16 @@ etapa de retreino.
 
 O cache de dependências fica em `astral-sh/setup-uv` com `enable-cache: true`,
 com chave em `uv.lock`: enquanto o lock não muda, `lint` e `test` reaproveitam
-os pacotes já baixados.
+os pacotes já baixados. Cada job usa um `cache-suffix` próprio — rodam em
+paralelo e, com a mesma chave, disputam a reserva do cache (um dos dois falha
+ao salvar e emite warning); além disso instalam conjuntos diferentes.
 
 O build da imagem **não** usa cache de camadas, deliberadamente. O ganho seria
-pequeno (~39 s a frio) e o risco é real: uma camada de treino em cache faria o
+pequeno (27 s a frio) e o risco é real: uma camada de treino em cache faria o
 job publicar um modelo velho e ainda assim reportar sucesso, que é exatamente
 o tipo de falha silenciosa que este job existe para pegar.
+
+Tempo total do workflow: `lint` 10 s, `test` 15 s (em paralelo), `build` 38 s.
 
 ### 5.4 Cobertura
 
