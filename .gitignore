@@ -10,6 +10,15 @@ data/processed/
 models/*.joblib
 models/*.onnx
 
+# Airflow (gerado em runtime pelos containers)
+airflow/logs/
+airflow/.env
+airflow/plugins/__pycache__/
+airflow/dags/__pycache__/
+airflow/config/airflow.cfg
+airflow/airflow-webserver.pid
+airflow/standalone_admin_password.txt
+
 # Python
 __pycache__/
 *.py[cod]
