@@ -1,6 +1,7 @@
 """Data preparation pipeline for the medical abstracts corpus.
 
-Reads the raw ``train.csv``/``test.csv`` files, deduplicates abstracts,
+Downloads the corpus from the Hugging Face Hub when it is not present (see
+:mod:`src.data.download`), deduplicates abstracts,
 removes train/test leakage, splits the training pool into train/validation
 and writes the result to ``data/processed`` as parquet files.
 
@@ -24,6 +25,8 @@ from pathlib import Path
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
+
+from src.data.download import ensure_dataset, quiet_http_logs
 
 LOGGER = logging.getLogger(__name__)
 
@@ -245,6 +248,9 @@ def prepare(
     label_strategy: str = DEFAULT_LABEL_STRATEGY,
 ) -> dict[str, pd.DataFrame]:
     """Run the full preparation pipeline and persist the processed splits."""
+    LOGGER.info("=== ensuring raw data is available ===")
+    ensure_dataset(raw_dir)
+
     LOGGER.info("=== loading raw data from %s ===", raw_dir)
     raw_train = load_raw(raw_dir / "train.csv")
     raw_test = load_raw(raw_dir / "test.csv")
@@ -305,6 +311,7 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
         datefmt="%H:%M:%S",
     )
+    quiet_http_logs()
     args = parse_args(argv)
     prepare(
         args.raw_dir,
