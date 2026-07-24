@@ -336,7 +336,9 @@ Em produção isso viraria uma cadência real, por exemplo `schedule="0 3 * * 1"
 chegassem. `catchup=False` deve permanecer nos dois casos: fazer backfill de um
 job de treino só retreinaria o mesmo modelo N vezes sobre o mesmo corpus.
 
-`retries=2` com `retry_delay` de 1 minuto, aplicados às três tasks.
+`retries=2` com `retry_delay` de 1 minuto, aplicados às três tasks. A única
+exceção é a reprovação do quality gate, que falha de imediato — ver
+[Por que o gate não faz retry](#por-que-o-gate-não-faz-retry).
 
 ### Onde os artefatos aparecem
 
@@ -373,9 +375,28 @@ Nada disso é versionado — `models/*.joblib` e `reports/metrics_*.json` estão
 Antes de publicar, a task compara o **macro-F1 no split de teste** com um limiar
 mínimo. Abaixo do limiar, a task falha.
 
-O limiar padrão é **0,60**, definido no código. Ele pode ser sobrescrito em tempo
+O limiar padrão é **0,62**, definido no código. Ele pode ser sobrescrito em tempo
 de execução pela UI em **Admin → Variables**, na chave `min_macro_f1`, sem editar
-nem recarregar a DAG.
+nem recarregar a DAG. Uma Variable definida **sobrepõe** o default do código — se
+existir uma `min_macro_f1` antiga no banco, é ela que vale.
+
+#### De onde vem o 0,62
+
+O valor foi calibrado a partir do baseline observado, não escolhido por
+arredondamento. A execução de referência marca **0,6707** de macro-F1 no split de
+teste; 0,62 fica cerca de **5 pontos abaixo** disso.
+
+A folga é deliberada e tem dois lados:
+
+- **larga o bastante** para absorver a variação normal de um retreino — mudança
+  de corpus, reamostragem do split, ajuste de hiperparâmetro — sem reprovar um
+  modelo que continua saudável;
+- **apertada o bastante** para que uma regressão real seja barrada. Um limiar
+  muito distante do score de verdade deixa de ser um gate e vira decoração:
+  passaria mesmo um modelo visivelmente pior.
+
+O limiar deve subir conforme o modelo melhorar. Se um dia o baseline chegar a
+0,75 e o limiar continuar em 0,62, o gate volta a não proteger nada.
 
 O ponto de ordem importa: **o gate roda antes da publicação**. Um modelo
 reprovado fica em disco como `model_<timestamp>.joblib` para inspeção, mas
@@ -386,13 +407,18 @@ servindo o modelo anterior, que é o comportamento desejável.
 Isso é o gate de qualidade de dados/modelo que conversa com o item D3·A7 do
 plano de monitoramento.
 
-Uma observação sobre a escolha da exceção: o gate levanta um `ValueError` comum,
-o que faz a task respeitar a política de retry da DAG (3 tentativas no total). Um
-gate é determinístico — retentar não muda o resultado — então, a rigor,
-`AirflowFailException` seria mais correto, pois falha na hora sem gastar as
-tentativas. O `ValueError` foi mantido porque o critério de aceite desta etapa
-pede explicitamente que a falha do gate exercite o retry. Se o retry passar a
-incomodar em uso real, trocar a exceção é uma linha.
+#### Por que o gate não faz retry
+
+A reprovação levanta `AirflowFailException`, que falha a task na hora e
+**ignora a política de retry**. O gate é determinístico: os mesmos splits com o
+mesmo `RANDOM_STATE` produzem o mesmo macro-F1, então retentar só gastaria um
+minuto para chegar ao mesmo veredito.
+
+Isso não desliga o retry do resto: `retries=2` continua valendo para as três
+tasks. Falhas transitórias — rede no `ingest`, I/O no `prepare`, leitura dos
+parquet ou escrita do artefato no próprio `train` — levantam exceções comuns e
+seguem sendo retentadas normalmente. A isenção é só do gate, e sai de graça, sem
+precisar configurar `retries` diferente por task.
 
 ---
 
@@ -480,8 +506,8 @@ Métricas da execução:
 | validação | 995 | 0,7970 | 0,7924 |
 | teste | 2.657 | 0,6699 | **0,6707** |
 
-O macro-F1 de teste (0,6707) passa o limiar de 0,60, mas com folga pequena — vale
-manter em mente antes de baixar o limiar ou de tratar 0,60 como confortável.
+O macro-F1 de teste (0,6707) é o número a partir do qual o limiar de 0,62 foi
+calibrado — ver [De onde vem o 0,62](#de-onde-vem-o-062).
 
 Confirmações feitas no host, não só na UI:
 
@@ -505,28 +531,32 @@ Com `min_macro_f1` temporariamente em `0.99` (Admin → Variables), a DAG foi
 disparada de novo:
 
 ```
-[15s]  ingest=success  prepare=success  train=up_for_retry (try 1)
-[76s]  ingest=success  prepare=success  train=up_for_retry (try 2)
-[136s] ingest=success  prepare=success  train=running      (try 3)
-[152s] ingest=success  prepare=success  train=failed       (try 3)  → DAG run: failed
+[0s]  run=queued   ingest=None(try0)     prepare=None(try0)     train=None(try0)
+[6s]  run=running  ingest=success(try1)  prepare=success(try1)  train=running(try1)
+[11s] run=failed   ingest=success(try1)  prepare=success(try1)  train=failed(try1)
 ```
 
 Comportamento observado, exatamente o esperado:
 
-- a task `train` falhou e **fez retry duas vezes**, respeitando `retries=2` e o
-  `retry_delay` de 1 minuto (~152 s no total para as três tentativas);
+- a task `train` falhou **na primeira tentativa, sem retry** — o log do Airflow
+  registra `Immediate failure requested`, que é a assinatura de
+  `AirflowFailException`. A execução inteira levou 11 s;
 - a mensagem de erro nomeia o problema e o que fazer com ele:
   `quality gate failed: test macro_f1 0.6707 is below the minimum of 0.9900.
   baseline.joblib was left untouched; the rejected model is at
-  /opt/project/models/model_20260724_104933.joblib`;
-- **`baseline.joblib` ficou intacto** — sha256 e mtime idênticos aos de antes do
-  teste (`243f5813…`, `Jul 24 10:47:32`). O modelo reprovado ficou em disco como
-  arquivo versionado, disponível para inspeção;
-- as três tentativas escreveram no **mesmo** `model_<timestamp>.joblib`, sem
-  deixar artefatos órfãos, porque o timestamp vem do `logical_date`.
+  /opt/project/models/model_20260724_112748.joblib`;
+- **`baseline.joblib` ficou intacto** — sha256 idêntico ao de antes do teste
+  (`243f5813…`). O modelo reprovado ficou em disco como arquivo versionado,
+  disponível para inspeção.
 
-Restaurando `min_macro_f1` para `0.60`, a execução seguinte voltou a passar e
-publicou normalmente.
+Removida a Variable, a execução seguinte voltou a passar com o limiar de código
+(0,62) e publicou normalmente.
+
+> **Comparação com a versão anterior:** enquanto o gate levantava um `ValueError`
+> comum, a mesma reprovação consumia as 3 tentativas e **152 s** antes de a DAG
+> ficar vermelha. Com `AirflowFailException` são **11 s** — o feedback de uma
+> regressão de qualidade chega ~14× mais rápido, e o retry continua disponível
+> para as falhas onde ele realmente ajuda.
 
 ---
 

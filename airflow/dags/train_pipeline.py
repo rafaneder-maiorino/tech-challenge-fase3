@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pendulum
+from airflow.exceptions import AirflowFailException
 from airflow.models import Variable
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
@@ -47,7 +48,12 @@ BASELINE_MODEL_PATH = MODELS_DIR / "baseline.joblib"
 # Quality gate. Overridable at runtime from the UI (Admin > Variables) without
 # touching this file — which is how the gate gets tested.
 MIN_MACRO_F1_VARIABLE = "min_macro_f1"
-MIN_MACRO_F1_DEFAULT = 0.60
+# Calibrated from the observed baseline: the reference run scores 0.6707 macro-F1
+# on the held-out test split. 0.62 sits roughly five points below that — wide
+# enough to absorb the ordinary variation of a retrain, tight enough that a real
+# regression still trips it. Raise it as the model improves; a threshold left far
+# behind the actual score stops being a gate.
+MIN_MACRO_F1_DEFAULT = 0.62
 
 # How many timestamped models to keep in models/. baseline.joblib is never a
 # candidate for removal: it does not match the model_*.joblib glob.
@@ -236,11 +242,13 @@ def train(**context: Any) -> dict[str, Any]:
     )
     LOGGER.info("quality gate: test macro_f1=%.4f, minimum=%.4f", macro_f1, threshold)
     if macro_f1 < threshold:
-        # A plain exception (not AirflowFailException) so the task honours the
-        # DAG's retry policy, which is what the acceptance criteria ask for.
-        # For a genuinely deterministic gate, AirflowFailException would be the
-        # better choice — retrying cannot change the outcome. See docs.
-        raise ValueError(
+        # AirflowFailException fails the task immediately, bypassing the retry
+        # policy. The gate is deterministic — the same splits and the same
+        # RANDOM_STATE produce the same macro-F1, so a retry would burn a
+        # minute to reach the identical verdict. Transient failures earlier in
+        # this task (reading the parquet splits, writing the artifact) still
+        # retry normally, because those raise ordinary exceptions.
+        raise AirflowFailException(
             f"quality gate failed: test macro_f1 {macro_f1:.4f} is below the "
             f"minimum of {threshold:.4f}. {BASELINE_MODEL_PATH.name} was left "
             f"untouched; the rejected model is at {model_path}."
@@ -287,6 +295,10 @@ with DAG(
     schedule=None,
     start_date=pendulum.datetime(2026, 1, 1, tz=LOCAL_TZ),
     catchup=False,
+    # retries stay on for every task: ingest hits the network and prepare does
+    # real I/O, so a transient failure there is worth a second attempt. The
+    # quality gate is exempt without touching this policy, because
+    # AirflowFailException bypasses retries on its own.
     default_args={
         "owner": "tech-challenge",
         "retries": 2,
