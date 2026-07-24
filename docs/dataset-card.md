@@ -332,8 +332,11 @@ uv run python -m src.models.baseline  # -> models/baseline.joblib, reports/basel
 uv run python -m src.experiments.label_strategy_comparison  # -> reports/label_strategy_comparison.json
 ```
 
-`data/processed/`, `models/*.joblib` e os dados brutos não são versionados —
-são regenerados pelos comandos acima a partir de `data/raw_abstracts/`.
+`data/processed/`, `models/*.joblib` e os dados brutos não são versionados. O
+`prepare` baixa o corpus sozinho (`src/data/download.py`) na revisão fixa
+`3ad6e168`, conferindo o sha256 de `train.csv` e `test.csv` — logo um clone
+limpo reproduz os mesmos splits e as mesmas métricas sem nenhum passo manual.
+Se os arquivos já existirem e o checksum bater, nada é baixado de novo.
 
 Baseline (TF-IDF 1–2 gramas, `min_df=2`, `max_features=50000`, stopwords em
 inglês + `LogisticRegression(class_weight='balanced')`), treinado nos 5.634
