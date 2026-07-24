@@ -1,19 +1,50 @@
 # Airflow — setup local (Etapa 2)
 
-Stack mínima do Apache Airflow para orquestrar a pipeline de ingestão e treino do
-Tech Challenge. **Esta etapa cobre apenas a infraestrutura** — nenhuma DAG foi
-escrita ainda, de propósito, para separar problemas de infra de problemas de
-código de DAG.
+Stack do Apache Airflow que orquestra a pipeline de ingestão e treino do Tech
+Challenge, e a DAG `train_pipeline` que roda em cima dela.
 
 | Item | Valor |
 | --- | --- |
-| Versão do Airflow | `2.11.0` (imagem `apache/airflow:2.11.0-python3.11`) |
+| Versão do Airflow | `2.11.0` (base `apache/airflow:2.11.0-python3.11`) |
+| Imagem usada | `tech-challenge-fase3/airflow:2.11.0` (build local, ver `airflow/Dockerfile`) |
 | Executor | `LocalExecutor` |
 | Metadata DB | `postgres:16-alpine` (sem porta exposta) |
 | UI | http://localhost:8080 |
-| Credenciais | `airflow` / `airflow` |
+| Credenciais | definidas no seu `airflow/.env` (não versionado) |
 | Containers | 3 de longa duração + 1 one-shot (`airflow-init`) |
 | Arquitetura | arm64 nativo (sem emulação QEMU) |
+| DAG | `train_pipeline` — `ingest` → `prepare` → `train` |
+
+---
+
+## Primeiro uso
+
+O repositório é público, então **nenhum segredo está versionado**. O `.env` é
+obrigatório: sem ele o `docker compose` falha com uma mensagem explícita
+apontando para o `.env.example`.
+
+```bash
+cd airflow
+cp .env.example .env
+```
+
+Depois abra o `.env` e preencha os três campos marcados como `<GERAR>`:
+
+```bash
+# FERNET_KEY — criptografa Connections e Variables
+python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+
+# SECRET_KEY — assina os cookies de sessão da UI
+python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# senha do admin
+python3 -c "import secrets; print(secrets.token_urlsafe(12))"
+```
+
+Se o usuário admin já existir no banco, mudar `AIRFLOW_ADMIN_PASSWORD` no `.env`
+**não** troca a senha — o `airflow-init` só cria o usuário quando ele não existe.
+Para aplicar uma senha nova, ou troque pela UI (Security → List Users) ou recrie
+o banco com `down -v`.
 
 ---
 
@@ -24,7 +55,11 @@ Todos rodados a partir do diretório `airflow/`:
 ```bash
 cd airflow
 
-# subir
+# subir (a primeira vez precisa do --build para montar a imagem com as
+# dependências de treino)
+docker compose -f docker-compose.airflow.yml up -d --build
+
+# subidas seguintes
 docker compose -f docker-compose.airflow.yml up -d
 
 # acompanhar o primeiro start (o airflow-init é o que demora)
@@ -41,10 +76,11 @@ docker compose -f docker-compose.airflow.yml down
 docker compose -f docker-compose.airflow.yml down -v
 ```
 
-Acesso à UI: <http://localhost:8080> → usuário `airflow`, senha `airflow`.
+Acesso à UI: <http://localhost:8080>, com as credenciais do seu `.env`.
 
-Configuração opcional: `cp .env.example .env` e ajustar. Todos os valores têm
-default no compose, então o `.env` não é obrigatório.
+Rebuild da imagem só é necessário quando as versões no `airflow/Dockerfile`
+mudarem. Editar a DAG ou o código de `src/` **não** exige rebuild: os dois
+entram por volume.
 
 ---
 
@@ -189,11 +225,174 @@ Postgres local na 5432.
 
 ### Volumes
 
-Bind mounts de `dags/`, `logs/`, `plugins/` e `config/` para `/opt/airflow/*`.
-As DAGs da próxima etapa vão em `airflow/dags/`.
+Dois grupos de bind mounts:
+
+| Host | Container | Modo | Para quê |
+| --- | --- | --- | --- |
+| `airflow/dags` | `/opt/airflow/dags` | rw | as DAGs |
+| `airflow/logs` | `/opt/airflow/logs` | rw | logs das tasks |
+| `airflow/plugins` | `/opt/airflow/plugins` | rw | plugins (vazio) |
+| `airflow/config` | `/opt/airflow/config` | rw | config extra (vazio) |
+| `src/` | `/opt/project/src` | **ro** | código do projeto |
+| `data/` | `/opt/project/data` | rw | corpus e splits |
+| `models/` | `/opt/project/models` | rw | artefatos treinados |
+| `reports/` | `/opt/project/reports` | rw | métricas |
+
+`src/` é montado **read-only** porque a DAG consome os módulos como estão e
+nunca deve escrever neles. Como efeito colateral, o Python não consegue gravar
+`__pycache__` lá dentro — daí `PYTHONDONTWRITEBYTECODE=1` no compose, que evita
+a tentativa em vez de deixá-la falhar em silêncio a cada import.
+
+`PYTHONPATH=/opt/project` é o que faz `from src.data.prepare import ...`
+funcionar dentro das tasks.
+
+Os módulos de `src/` usam caminhos relativos ao diretório de trabalho
+(`Path("data/processed")` e afins). Dentro do container o cwd é `/opt/airflow`,
+não a raiz do projeto — por isso a DAG monta **todos os caminhos de forma
+absoluta** a partir de `PROJECT_ROOT=/opt/project` e os passa explicitamente
+para `ensure_dataset()`, `prepare()` e `train_baseline()`.
 
 O banco de metadados fica em um volume nomeado (`postgres-db-volume`), não em
 bind mount — assim `down` preserva o histórico de execuções e só `down -v` reseta.
+
+---
+
+## A imagem própria (`airflow/Dockerfile`)
+
+A imagem oficial do Airflow não traz as bibliotecas de treino, e as que ela traz
+estão em versões antigas. A imagem do projeto herda dela e instala:
+
+```
+pandas==3.0.5   scikit-learn==1.9.0   huggingface-hub==1.24.0
+pyarrow==25.0.0  joblib==1.5.3
+```
+
+**Estas versões precisam ser as mesmas do `uv.lock`.** Não é preciosismo: o
+modelo treinado pela DAG é desserializado pela API, e um `Pipeline` do
+scikit-learn salvo com joblib não é compatível entre versões diferentes da
+biblioteca. A imagem base traz scikit-learn 1.6.1 e a API instala 1.9.0 — treinar
+numa e carregar na outra geraria `InconsistentVersionWarning` e risco de erro
+silencioso na inferência.
+
+O `numpy` fica na 1.26.4 que a imagem já traz: pandas 3.0.5 e scikit-learn 1.9.0
+funcionam com ela, o que evita a quebra de ABI que um upgrade para numpy 2.x
+causaria nos pacotes compilados do Airflow.
+
+`pip check` reclama de `apache-airflow-providers-google` e `-snowflake`, que
+pedem `pandas<2.2`. São providers que este projeto não usa (as tasks são todas
+`PythonOperator`) e que não são importados em runtime — o Airflow sobe e opera
+normalmente, como as validações abaixo mostram.
+
+---
+
+## A DAG `train_pipeline`
+
+### Como disparar
+
+Pela UI, em <http://localhost:8080>:
+
+1. A DAG aparece na lista como `train_pipeline`, **pausada** (é o padrão do
+   compose, para nada disparar sozinho no primeiro `up`).
+2. Ative o toggle à esquerda do nome.
+3. Clique no botão ▶ (*Trigger DAG*) no canto direito.
+4. Acompanhe em *Graph* ou *Grid*; os logs de cada task ficam em
+   *Grid → (task) → Logs*.
+
+Equivalente por linha de comando, se preferir:
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler \
+  airflow dags trigger train_pipeline
+```
+
+### O que cada task faz
+
+| Task | O que faz | Saída |
+| --- | --- | --- |
+| `ingest` | Chama `ensure_dataset()` de `src/data/download.py`. Baixa o corpus da revisão fixada no Hugging Face **só se ele não estiver presente**, e valida o sha256 dos arquivos nos dois casos. | XCom com `raw_dir`, `downloaded` (bool) e o tamanho + sha256 de cada arquivo. |
+| `prepare` | Chama `prepare()` de `src/data/prepare.py`: deduplicação, resolução de rótulos ambíguos, remoção de vazamento entre treino e teste, split estratificado treino/validação. | XCom com `processed_dir`, contagem por split e o caminho de cada parquet. |
+| `train` | Chama `train_baseline()` de `src/models/baseline.py` (TF-IDF + LogisticRegression), avalia em validação e teste, aplica o *quality gate* e publica o artefato. | XCom com caminhos, `macro_f1`, `accuracy`, limiar aplicado e a lista de modelos removidos pela retenção. |
+
+As três tasks logam entrada e saída no log do Airflow — shapes dos splits,
+checksums, tamanho do vocabulário, métricas por split e o veredito do gate.
+
+Os módulos de `src/` são consumidos **como bibliotecas**, não via `BashOperator`:
+a DAG importa `ensure_dataset`, `prepare` e `train_baseline` diretamente. Os
+imports ficam dentro do corpo das funções, e não no topo do arquivo, porque o
+topo é reexecutado a cada ciclo de parsing do scheduler — um `import pandas` ali
+custaria segundos por ciclo sem nenhuma task estar rodando.
+
+`prepare()` chama `ensure_dataset()` internamente. Como a task `ingest` já rodou,
+essa chamada interna vira uma revalidação de checksum, não um novo download — a
+separação em duas tasks existe para dar visibilidade e retry independentes.
+
+### Agendamento
+
+`schedule=None`: disparo manual. A revisão do corpus é fixada por commit hash, ou
+seja, não muda sozinha — não há nada para um agendamento capturar.
+
+Em produção isso viraria uma cadência real, por exemplo `schedule="0 3 * * 1"`
+(segundas às 03:00) ou um trigger por Dataset quando novos laudos rotulados
+chegassem. `catchup=False` deve permanecer nos dois casos: fazer backfill de um
+job de treino só retreinaria o mesmo modelo N vezes sobre o mesmo corpus.
+
+`retries=2` com `retry_delay` de 1 minuto, aplicados às três tasks.
+
+### Onde os artefatos aparecem
+
+Direto na árvore do projeto no host, via os volumes:
+
+```
+data/raw_abstracts/        corpus baixado (train.csv, test.csv)
+data/processed/            train.parquet, val.parquet, test.parquet
+models/model_<timestamp>.joblib    modelo versionado desta execução
+models/baseline.joblib             cópia do último modelo aprovado — é o que a API serve
+reports/metrics_<timestamp>.json   métricas correspondentes
+```
+
+O timestamp tem o formato `YYYYMMDD_HHMMSS` e vem do `logical_date` da execução,
+não do relógio no instante do treino. A diferença importa em retry: as três
+tentativas de uma mesma execução escrevem **no mesmo arquivo**, em vez de
+deixarem um artefato órfão por tentativa.
+
+`baseline.joblib` é uma **cópia** (`shutil.copy2`), não um symlink: um symlink em
+`models/` não sobreviveria a um checkout no Windows sem developer mode, e a API
+apenas abre o caminho.
+
+**Retenção:** ao final de cada treino aprovado, a task mantém os 5
+`model_*.joblib` mais recentes e apaga o resto. `baseline.joblib` nunca é
+candidato à remoção, porque não casa com o glob `model_*.joblib`. Os
+`metrics_*.json` **não** são podados: são arquivos de poucos KB e o histórico
+completo de métricas é justamente o que alimenta o acompanhamento de drift.
+
+Nada disso é versionado — `models/*.joblib` e `reports/metrics_*.json` estão no
+`.gitignore`, junto com `airflow/logs/` e `airflow/.env`.
+
+### O quality gate
+
+Antes de publicar, a task compara o **macro-F1 no split de teste** com um limiar
+mínimo. Abaixo do limiar, a task falha.
+
+O limiar padrão é **0,60**, definido no código. Ele pode ser sobrescrito em tempo
+de execução pela UI em **Admin → Variables**, na chave `min_macro_f1`, sem editar
+nem recarregar a DAG.
+
+O ponto de ordem importa: **o gate roda antes da publicação**. Um modelo
+reprovado fica em disco como `model_<timestamp>.joblib` para inspeção, mas
+`baseline.joblib` continua apontando para o último modelo **aprovado**. Ou seja,
+uma regressão de qualidade nunca chega à API — o pior caso é a API continuar
+servindo o modelo anterior, que é o comportamento desejável.
+
+Isso é o gate de qualidade de dados/modelo que conversa com o item D3·A7 do
+plano de monitoramento.
+
+Uma observação sobre a escolha da exceção: o gate levanta um `ValueError` comum,
+o que faz a task respeitar a política de retry da DAG (3 tentativas no total). Um
+gate é determinístico — retentar não muda o resultado — então, a rigor,
+`AirflowFailException` seria mais correto, pois falha na hora sem gastar as
+tentativas. O `ValueError` foi mantido porque o critério de aceite desta etapa
+pede explicitamente que a falha do gate exercite o retry. Se o retry passar a
+incomodar em uso real, trocar a exceção é uma linha.
 
 ---
 
@@ -240,37 +439,149 @@ curl -s http://localhost:8080/health | python3 -m json.tool
 
 # 3. DAGs de exemplo desabilitadas
 docker compose -f docker-compose.airflow.yml exec airflow-scheduler airflow dags list
-# "No data found" — nenhuma DAG registrada (esperado: ainda não escrevemos nenhuma)
+# so train_pipeline — nenhuma das ~50 DAGs de exemplo
 
 docker compose -f docker-compose.airflow.yml exec airflow-scheduler airflow config get-value core load_examples
 # false
+
+# 4. a DAG parseia sem erro de import
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler airflow dags list-import-errors
+# "No data found"
 ```
 
 Resultado obtido nesta máquina: os três containers `healthy`, `/health` com
-`metadatabase` e `scheduler` saudáveis, `load_examples=false` e `airflow dags list`
-retornando `No data found` — sem nenhuma das ~50 DAGs de exemplo.
+`metadatabase` e `scheduler` saudáveis, `load_examples=false`, e `airflow dags
+list` mostrando apenas `train_pipeline`, sem erros de import.
 
 Login validado de fato (não só o carregamento da tela): `POST /login/` com CSRF
 token retornou `302` e o `GET /home` seguinte retornou `200` já autenticado.
 
 ---
 
+## Execução validada da DAG
+
+Disparada pela UI, com a stack recém-subida. Tempo por task:
+
+| Task | Duração | Observação |
+| --- | --- | --- |
+| `ingest` | 0,4 s | corpus já presente → só revalidação de sha256 |
+| `prepare` | 1,5 s | 5.634 treino + 995 validação + 2.657 teste |
+| `train` | 4,2 s | vocabulário TF-IDF de 50.000 termos |
+| **total** | **~6 s** | |
+
+Um `ingest` que precise baixar o corpus de verdade (≈18 MB) leva bem mais que
+0,4 s — o número acima é o caminho quente, que é o normal a partir da segunda
+execução.
+
+Métricas da execução:
+
+| Split | n | accuracy | macro-F1 |
+| --- | --- | --- | --- |
+| validação | 995 | 0,7970 | 0,7924 |
+| teste | 2.657 | 0,6699 | **0,6707** |
+
+O macro-F1 de teste (0,6707) passa o limiar de 0,60, mas com folga pequena — vale
+manter em mente antes de baixar o limiar ou de tratar 0,60 como confortável.
+
+Confirmações feitas no host, não só na UI:
+
+- **`baseline.joblib` foi realmente regravado.** sha256 antes
+  `9e3df983…`, depois `243f5813…`; mtime foi de `Jul 23 21:08` para
+  `Jul 24 10:47`. O `model_<timestamp>.joblib` da execução tem hash idêntico ao
+  do `baseline.joblib`, o que confirma que a cópia é fiel.
+- **A API carrega o modelo novo.** Reiniciada, o `/health` respondeu
+  `{"model_loaded": true, "model_path": "models/baseline.joblib"}` e o `/predict`
+  classificou um resumo sobre infarto como `cardiovascular diseases` com
+  confiança 0,708. O carregamento foi testado com `warnings.simplefilter("error")`,
+  ou seja, qualquer `InconsistentVersionWarning` do scikit-learn teria virado
+  erro — não houve nenhum.
+- **A retenção funciona.** Após execuções sucessivas, `models/` estabilizou em
+  5 arquivos `model_*.joblib` mais o `baseline.joblib`, com os mais antigos
+  removidos.
+
+### Teste do quality gate
+
+Com `min_macro_f1` temporariamente em `0.99` (Admin → Variables), a DAG foi
+disparada de novo:
+
+```
+[15s]  ingest=success  prepare=success  train=up_for_retry (try 1)
+[76s]  ingest=success  prepare=success  train=up_for_retry (try 2)
+[136s] ingest=success  prepare=success  train=running      (try 3)
+[152s] ingest=success  prepare=success  train=failed       (try 3)  → DAG run: failed
+```
+
+Comportamento observado, exatamente o esperado:
+
+- a task `train` falhou e **fez retry duas vezes**, respeitando `retries=2` e o
+  `retry_delay` de 1 minuto (~152 s no total para as três tentativas);
+- a mensagem de erro nomeia o problema e o que fazer com ele:
+  `quality gate failed: test macro_f1 0.6707 is below the minimum of 0.9900.
+  baseline.joblib was left untouched; the rejected model is at
+  /opt/project/models/model_20260724_104933.joblib`;
+- **`baseline.joblib` ficou intacto** — sha256 e mtime idênticos aos de antes do
+  teste (`243f5813…`, `Jul 24 10:47:32`). O modelo reprovado ficou em disco como
+  arquivo versionado, disponível para inspeção;
+- as três tentativas escreveram no **mesmo** `model_<timestamp>.joblib`, sem
+  deixar artefatos órfãos, porque o timestamp vem do `logical_date`.
+
+Restaurando `min_macro_f1` para `0.60`, a execução seguinte voltou a passar e
+publicou normalmente.
+
+---
+
 ## Problemas encontrados
 
-Nenhum erro ocorreu durante o setup. A stack subiu de primeira e todos os
-containers ficaram `healthy`.
+### 1. Modelo treinado pelo Airflow não carregava na API (resolvido)
 
-Os pontos abaixo eram riscos conhecidos que foram **evitados por decisão de
-projeto**, não problemas que apareceram:
+Foi o único problema real, e não é óbvio. A primeira execução da DAG terminou com
+as três tasks verdes e gravou `models/baseline.joblib` normalmente — mas ao
+carregar esse arquivo no ambiente da API:
+
+```
+ModuleNotFoundError: No module named 'dill'
+```
+
+**Causa.** O runtime de task do Airflow importa `dill` e chama `dill.extend()`,
+que injeta cerca de 40 reducers próprios em `pickle._Pickler.dispatch`. O
+`joblib` copia essa tabela para `NumpyPickler.dispatch` no momento em que é
+importado. Como a task importa `joblib` depois disso, todo modelo salvo de dentro
+de uma task serializa os escalares numpy do vocabulário TF-IDF via
+`dill._dill._get_attr` — e o arquivo passa a exigir `dill` para ser lido. A API
+não tem `dill` (depende só do grupo de serving do `pyproject.toml`), então
+quebrava na carga.
+
+O detalhe cruel é que **a DAG fica verde**: o treino termina, as métricas são
+gravadas, o artefato existe. O defeito só aparece na hora de servir. Sem o teste
+de carga cruzada, isso passaria batido até a API ser reiniciada em produção.
+
+**Correção.** A task `train` chama `_restore_stock_pickler()` antes de importar
+qualquer coisa de `src/`: reverte o patch com `dill.extend(False)` e, por
+segurança, limpa entradas de dill que já tenham vazado para o dispatch do joblib.
+O Airflow não é afetado — a serialização de XCom aqui é JSON
+(`enable_xcom_pickling` é `false` por padrão) e carrega dicts simples.
+
+**Verificação.** Depois da correção, o artefato não contém mais a string `dill`,
+carrega no ambiente da API com warnings tratados como erro, e o `/predict`
+responde corretamente.
+
+Vale como lição geral: **"a DAG ficou verde" não é evidência de que o artefato
+presta.** O teste que importa é carregar o artefato no ambiente que vai consumi-lo.
+
+### 2. Riscos evitados por decisão de projeto
+
+Estes não chegaram a acontecer — foram fechados no desenho:
 
 | Risco | Como foi evitado |
 | --- | --- |
 | Permissão em `logs/` no macOS | `AIRFLOW_UID=50000` (uid da imagem) + grupo 0, em vez do `id -u` que a doc oficial sugere para Linux |
 | Emulação QEMU no M2 | Imagens multi-arch verificadas como arm64 antes de subir |
 | Conflito de porta | `lsof` nas portas candidatas antes de escolher; Postgres sem porta exposta |
-| Fernet key rotativa | Chave fixa via env — se ficasse vazia, o Airflow geraria uma nova a cada restart e as Connections salvas parariam de descriptografar |
+| Fernet key rotativa | Chave fixa via `.env` — se ficasse vazia, o Airflow geraria uma nova a cada restart e as Connections salvas parariam de descriptografar |
 | DAG disparando sozinha no primeiro up | `AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true` |
-| Quebra ao importar `src/` depois | Imagem fixada em `python3.11`, igual ao `.python-version` |
+| Modelo ilegível pela API por versão de lib | Versões do `Dockerfile` fixadas iguais às do `uv.lock`; imagem em `python3.11` como o `.python-version` |
+| Modelo ruim chegando à API | Quality gate roda **antes** da publicação em `baseline.joblib` |
+| Caminho relativo resolvendo errado | Todos os caminhos montados de forma absoluta a partir de `PROJECT_ROOT` |
 
 Ruído esperado (não é erro): os comandos `airflow ...` via `exec` imprimem
 `RemovedInAirflow3Warning` sobre unidades de métricas de timer. É um aviso de
@@ -280,18 +591,27 @@ deprecação da própria 2.11 e não afeta o funcionamento.
 
 ## Segurança
 
-As credenciais (`airflow`/`airflow`), a Fernet key e a secret key estão versionadas
-em claro no compose e no `.env.example`. Isso é aceitável **porque esta stack é
-estritamente local** — a UI escuta em `localhost` e o Postgres não é exposto. Nada
-disso deve ser reaproveitado em ambiente compartilhado ou exposto à internet.
+Nenhum segredo é versionado. As chaves e credenciais vivem em `airflow/.env`, que
+está no `.gitignore`; o `.env.example` traz só placeholders `<GERAR>` e as
+instruções de geração. O compose declara essas variáveis como obrigatórias
+(`${VAR:?mensagem}`), então uma cópia do repositório sem `.env` falha na hora com
+uma mensagem clara, em vez de subir com um valor default previsível.
 
-O arquivo `airflow/.env` está no `.gitignore`, então overrides locais não vazam
-para o repositório.
+> **Nota de histórico:** as primeiras versões deste compose traziam uma Fernet key
+> e uma secret key de desenvolvimento em claro, e elas continuam no histórico do
+> git. Devem ser consideradas queimadas. Não há impacto prático — davam acesso a
+> um banco de metadados local, sem porta exposta, com dados descartáveis — mas as
+> chaves em uso agora foram geradas do zero e nunca entraram no repositório.
+
+Mesmo assim, esta stack é **estritamente local**: a UI escuta em `localhost` e o
+Postgres não tem porta publicada. Para qualquer ambiente compartilhado, as
+credenciais deveriam sair do `.env` e ir para um secret manager de verdade.
 
 ---
 
 ## Próximo passo
 
-Escrever a DAG de ingestão e treino em `airflow/dags/`, apontando para o código de
-`src/`. Como a infra já está validada isoladamente, qualquer falha a partir daqui
-pode ser atribuída ao código da DAG.
+A pipeline de treino está orquestrada e validada ponta a ponta. O que falta na
+Etapa 2 é acoplar o monitoramento: expor as métricas de `reports/metrics_*.json`
+ao longo do tempo e usar a série histórica para detectar drift — que é o gatilho
+natural para transformar o `schedule=None` em uma cadência de retreino real.
