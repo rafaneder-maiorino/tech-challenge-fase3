@@ -1,0 +1,17 @@
+# Ambientes virtuais
+.venv/
+.venv-extract/
+
+# Dados brutos (baixados do Hugging Face) e derivados (regeneráveis)
+data/raw*/
+data/processed/
+
+# Artefatos de modelo (regeneráveis via src/models/baseline.py)
+models/*.joblib
+models/*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

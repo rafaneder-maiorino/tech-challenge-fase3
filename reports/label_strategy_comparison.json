@@ -1,0 +1,566 @@
+{
+  "experiment": "label_resolution_strategy",
+  "protocol": {
+    "raw_dir": "data/raw_abstracts",
+    "val_size": 0.15,
+    "random_state": 42,
+    "leakage_removal": "abstracts shared with test are dropped from train",
+    "model": "tfidf+logistic_regression",
+    "tfidf": {
+      "min_df": 2,
+      "max_features": 50000,
+      "ngram_range": [
+        1,
+        2
+      ],
+      "stop_words": "english"
+    },
+    "logistic_regression": {
+      "class_weight": "balanced",
+      "max_iter": 1000,
+      "random_state": 42
+    }
+  },
+  "condition_names": {
+    "1": "neoplasms",
+    "2": "digestive system diseases",
+    "3": "nervous system diseases",
+    "4": "cardiovascular diseases",
+    "5": "general pathological conditions"
+  },
+  "strategies": {
+    "majority": {
+      "strategy": "majority",
+      "n_train": 7188,
+      "n_val": 1269,
+      "n_test": 2770,
+      "vocabulary_size": 50000,
+      "distributions": {
+        "train": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 2003,
+            "proportion": 0.2786588759042849
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 780,
+            "proportion": 0.10851419031719532
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 1058,
+            "proportion": 0.14718976071229828
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 1715,
+            "proportion": 0.2385920979410128
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 1632,
+            "proportion": 0.2270450751252087
+          }
+        },
+        "val": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 354,
+            "proportion": 0.2789598108747045
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 138,
+            "proportion": 0.10874704491725769
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 187,
+            "proportion": 0.14736012608353033
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 302,
+            "proportion": 0.23798266351457842
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 288,
+            "proportion": 0.22695035460992907
+          }
+        },
+        "test": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 633,
+            "proportion": 0.22851985559566787
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 292,
+            "proportion": 0.10541516245487365
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 375,
+            "proportion": 0.13537906137184116
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 594,
+            "proportion": 0.21444043321299638
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 876,
+            "proportion": 0.31624548736462094
+          }
+        }
+      },
+      "validation": {
+        "n_samples": 1269,
+        "accuracy": 0.7959022852639874,
+        "macro_f1": 0.78631054691684,
+        "f1_per_class": {
+          "1": 0.8790560471976401,
+          "2": 0.7849829351535836,
+          "3": 0.7161125319693095,
+          "4": 0.8743718592964824,
+          "5": 0.6770293609671848
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              298,
+              13,
+              13,
+              1,
+              29
+            ],
+            [
+              4,
+              115,
+              4,
+              2,
+              13
+            ],
+            [
+              5,
+              6,
+              140,
+              11,
+              25
+            ],
+            [
+              1,
+              2,
+              10,
+              261,
+              28
+            ],
+            [
+              16,
+              19,
+              37,
+              20,
+              196
+            ]
+          ]
+        }
+      },
+      "test": {
+        "n_samples": 2770,
+        "accuracy": 0.6653429602888087,
+        "macro_f1": 0.6666237205772989,
+        "f1_per_class": {
+          "1": 0.7588757396449705,
+          "2": 0.6546546546546547,
+          "3": 0.6594982078853047,
+          "4": 0.7537608867775138,
+          "5": 0.5063291139240507
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              513,
+              26,
+              25,
+              13,
+              56
+            ],
+            [
+              37,
+              218,
+              7,
+              6,
+              24
+            ],
+            [
+              31,
+              6,
+              276,
+              17,
+              45
+            ],
+            [
+              10,
+              16,
+              31,
+              476,
+              61
+            ],
+            [
+              128,
+              108,
+              123,
+              157,
+              360
+            ]
+          ]
+        }
+      }
+    },
+    "unambiguous": {
+      "strategy": "unambiguous",
+      "n_train": 5634,
+      "n_val": 995,
+      "n_test": 2657,
+      "vocabulary_size": 50000,
+      "distributions": {
+        "train": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 1491,
+            "proportion": 0.26464323748668794
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 478,
+            "proportion": 0.08484203052893148
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 702,
+            "proportion": 0.12460063897763578
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 1324,
+            "proportion": 0.23500177493787716
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 1639,
+            "proportion": 0.2909123180688676
+          }
+        },
+        "val": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 264,
+            "proportion": 0.26532663316582916
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 84,
+            "proportion": 0.08442211055276382
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 124,
+            "proportion": 0.12462311557788945
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 234,
+            "proportion": 0.23517587939698492
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 289,
+            "proportion": 0.2904522613065327
+          }
+        },
+        "test": {
+          "1": {
+            "condition": "neoplasms",
+            "count": 599,
+            "proportion": 0.22544222807677833
+          },
+          "2": {
+            "condition": "digestive system diseases",
+            "count": 265,
+            "proportion": 0.09973654497553631
+          },
+          "3": {
+            "condition": "nervous system diseases",
+            "count": 347,
+            "proportion": 0.13059841926985322
+          },
+          "4": {
+            "condition": "cardiovascular diseases",
+            "count": 570,
+            "proportion": 0.21452766277756868
+          },
+          "5": {
+            "condition": "general pathological conditions",
+            "count": 876,
+            "proportion": 0.32969514490026347
+          }
+        }
+      },
+      "validation": {
+        "n_samples": 995,
+        "accuracy": 0.7969849246231155,
+        "macro_f1": 0.792425423075944,
+        "f1_per_class": {
+          "1": 0.9097888675623801,
+          "2": 0.8235294117647058,
+          "3": 0.6872586872586872,
+          "4": 0.8412017167381974,
+          "5": 0.7003484320557491
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              237,
+              4,
+              7,
+              1,
+              15
+            ],
+            [
+              3,
+              70,
+              0,
+              1,
+              10
+            ],
+            [
+              2,
+              2,
+              89,
+              5,
+              26
+            ],
+            [
+              0,
+              1,
+              4,
+              196,
+              33
+            ],
+            [
+              15,
+              9,
+              35,
+              29,
+              201
+            ]
+          ]
+        }
+      },
+      "test": {
+        "n_samples": 2657,
+        "accuracy": 0.6699284907790741,
+        "macro_f1": 0.6706725630573338,
+        "f1_per_class": {
+          "1": 0.7637231503579952,
+          "2": 0.6439522998296422,
+          "3": 0.6472919418758256,
+          "4": 0.749793559042114,
+          "5": 0.5486018641810919
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              480,
+              24,
+              25,
+              12,
+              58
+            ],
+            [
+              31,
+              189,
+              7,
+              6,
+              32
+            ],
+            [
+              26,
+              2,
+              245,
+              17,
+              57
+            ],
+            [
+              7,
+              14,
+              28,
+              454,
+              67
+            ],
+            [
+              114,
+              93,
+              105,
+              152,
+              412
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "common_test": {
+    "n_samples": 2657,
+    "strategies": {
+      "majority": {
+        "n_samples": 2657,
+        "accuracy": 0.663153933007151,
+        "macro_f1": 0.6643563204429295,
+        "f1_per_class": {
+          "1": 0.7581395348837209,
+          "2": 0.6437908496732027,
+          "3": 0.6573957016434893,
+          "4": 0.75,
+          "5": 0.5124555160142349
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              489,
+              23,
+              24,
+              12,
+              51
+            ],
+            [
+              35,
+              197,
+              6,
+              6,
+              21
+            ],
+            [
+              29,
+              3,
+              260,
+              15,
+              40
+            ],
+            [
+              10,
+              16,
+              31,
+              456,
+              57
+            ],
+            [
+              128,
+              108,
+              123,
+              157,
+              360
+            ]
+          ]
+        }
+      },
+      "unambiguous": {
+        "n_samples": 2657,
+        "accuracy": 0.6699284907790741,
+        "macro_f1": 0.6706725630573338,
+        "f1_per_class": {
+          "1": 0.7637231503579952,
+          "2": 0.6439522998296422,
+          "3": 0.6472919418758256,
+          "4": 0.749793559042114,
+          "5": 0.5486018641810919
+        },
+        "confusion_matrix": {
+          "labels": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matrix": [
+            [
+              480,
+              24,
+              25,
+              12,
+              58
+            ],
+            [
+              31,
+              189,
+              7,
+              6,
+              32
+            ],
+            [
+              26,
+              2,
+              245,
+              17,
+              57
+            ],
+            [
+              7,
+              14,
+              28,
+              454,
+              67
+            ],
+            [
+              114,
+              93,
+              105,
+              152,
+              412
+            ]
+          ]
+        }
+      }
+    }
+  }
+}

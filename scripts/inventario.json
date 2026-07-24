@@ -1,0 +1,430 @@
+{
+  "Deploy em Nuvem": [
+    {
+      "arquivo": "Aula 01.pdf",
+      "nome_nfc": "Aula 01.pdf",
+      "aula": "1",
+      "paginas": 15,
+      "chars_total": 6275,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 02.pdf",
+      "nome_nfc": "Aula 02.pdf",
+      "aula": "2",
+      "paginas": 15,
+      "chars_total": 7292,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 03 - Deploy de ML na Aws - Ecr, Ec2, Lambda, Aws Batch e Sagemaker.pdf",
+      "nome_nfc": "Aula 03 - Deploy de ML na Aws - Ecr, Ec2, Lambda, Aws Batch e Sagemaker.pdf",
+      "aula": "3",
+      "paginas": 13,
+      "chars_total": 7061,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 04 - Deploy de ML na Azure - Acr, Vm, Container Apps, Jobs, Azure ML.pdf",
+      "nome_nfc": "Aula 04 - Deploy de ML na Azure - Acr, Vm, Container Apps, Jobs, Azure ML.pdf",
+      "aula": "4",
+      "paginas": 13,
+      "chars_total": 7367,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 05 - Deploy de ML na Google - Artifact Registry, Compute Engine Vm, Cloud Run, Cloud Run Jobs e Vertex Ai.pdf",
+      "nome_nfc": "Aula 05 - Deploy de ML na Google - Artifact Registry, Compute Engine Vm, Cloud Run, Cloud Run Jobs e Vertex Ai.pdf",
+      "aula": "5",
+      "paginas": 14,
+      "chars_total": 6501,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 06 - Boas Práticas de Finops (Custos) e Segurança.pdf",
+      "nome_nfc": "Aula 06 - Boas Práticas de Finops (Custos) e Segurança.pdf",
+      "aula": "6",
+      "paginas": 14,
+      "chars_total": 5884,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "Integração com CI:CD (GitHub Actions)": [
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 1.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 1.pdf",
+      "aula": "1",
+      "paginas": 17,
+      "chars_total": 4504,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 2.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 2.pdf",
+      "aula": "2",
+      "paginas": 16,
+      "chars_total": 4575,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 3.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 3.pdf",
+      "aula": "3",
+      "paginas": 14,
+      "chars_total": 4390,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 4.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 4.pdf",
+      "aula": "4",
+      "paginas": 15,
+      "chars_total": 4316,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 5.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 5.pdf",
+      "aula": "5",
+      "paginas": 15,
+      "chars_total": 4342,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 6.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 6.pdf",
+      "aula": "6",
+      "paginas": 15,
+      "chars_total": 4415,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 7.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 7.pdf",
+      "aula": "7",
+      "paginas": 15,
+      "chars_total": 4285,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "9MLET - Fase 3 - Integração com CICD - Aula 8.pdf",
+      "nome_nfc": "9MLET - Fase 3 - Integração com CICD - Aula 8.pdf",
+      "aula": "8",
+      "paginas": 15,
+      "chars_total": 4515,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "Latência e Performance em Modelos de Dados Não Estruturados  ": [
+    {
+      "arquivo": "Aula 01 - Fundamentos de Latência e Performance em ML.pdf",
+      "nome_nfc": "Aula 01 - Fundamentos de Latência e Performance em ML.pdf",
+      "aula": "1",
+      "paginas": 13,
+      "chars_total": 5285,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 03 - Desafios de Performance em Visão Computacional.pdf",
+      "nome_nfc": "Aula 03 - Desafios de Performance em Visão Computacional.pdf",
+      "aula": "3",
+      "paginas": 10,
+      "chars_total": 5719,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 04 - Otimização de Modelos - Pruning e Quantização.pdf",
+      "nome_nfc": "Aula 04 - Otimização de Modelos - Pruning e Quantização.pdf",
+      "aula": "4",
+      "paginas": 12,
+      "chars_total": 5242,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 05 - Transfer Learning Eficiente e Adaptação de Modelos.pdf",
+      "nome_nfc": "Aula 05 - Transfer Learning Eficiente e Adaptação de Modelos.pdf",
+      "aula": "5",
+      "paginas": 12,
+      "chars_total": 5007,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 06 - Aceleração com Hardware - GPU, TPU e Aceleradores.pdf",
+      "nome_nfc": "Aula 06 - Aceleração com Hardware - GPU, TPU e Aceleradores.pdf",
+      "aula": "6",
+      "paginas": 13,
+      "chars_total": 5616,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 07 - Inferência Distribuída e Paralelismo de Modelos.pdf",
+      "nome_nfc": "Aula 07 - Inferência Distribuída e Paralelismo de Modelos.pdf",
+      "aula": "7",
+      "paginas": 12,
+      "chars_total": 5242,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 08 - Escalabilidade e Orquestração Multimodal em Produção.pdf",
+      "nome_nfc": "Aula 08 - Escalabilidade e Orquestração Multimodal em Produção.pdf",
+      "aula": "8",
+      "paginas": 12,
+      "chars_total": 5268,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "Monitoramento de Performance": [
+    {
+      "arquivo": "Aula 1 - Material Complementar.pdf",
+      "nome_nfc": "Aula 1 - Material Complementar.pdf",
+      "aula": "1",
+      "paginas": 17,
+      "chars_total": 4860,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 2-OTIMIZAÇÃO DE MODELOS SUPERVISIONADOS I.pdf",
+      "nome_nfc": "Aula 2-OTIMIZAÇÃO DE MODELOS SUPERVISIONADOS I.pdf",
+      "aula": "2",
+      "paginas": 19,
+      "chars_total": 5590,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 3- Otimização de Modelos Supervisionados II.pdf",
+      "nome_nfc": "Aula 3- Otimização de Modelos Supervisionados II.pdf",
+      "aula": "3",
+      "paginas": 16,
+      "chars_total": 5159,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 4- Otimização de Modelos Não Supervisionados.pdf",
+      "nome_nfc": "Aula 4- Otimização de Modelos Não Supervisionados.pdf",
+      "aula": "4",
+      "paginas": 17,
+      "chars_total": 5041,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 5- Pipelines de Serviço – Previsões em Lote vs. Tempo Real.pdf",
+      "nome_nfc": "Aula 5- Pipelines de Serviço – Previsões em Lote vs. Tempo Real.pdf",
+      "aula": "5",
+      "paginas": 18,
+      "chars_total": 5698,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 6 - Infraestrutura e Aceleração para Ambientes de Alto Throughput.pdf",
+      "nome_nfc": "Aula 6 - Infraestrutura e Aceleração para Ambientes de Alto Throughput.pdf",
+      "aula": "6",
+      "paginas": 23,
+      "chars_total": 5900,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 7 - Orquestração e Escalabilidade de Modelos em Produção.pdf",
+      "nome_nfc": "Aula 7 - Orquestração e Escalabilidade de Modelos em Produção.pdf",
+      "aula": "7",
+      "paginas": 19,
+      "chars_total": 7286,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 8.pdf",
+      "nome_nfc": "Aula 8.pdf",
+      "aula": "8",
+      "paginas": 17,
+      "chars_total": 4750,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "Pipeline de Treino e Deploy Automático  ": [
+    {
+      "arquivo": "Aula 01 - Introdução ao Pipeline de ML.pdf",
+      "nome_nfc": "Aula 01 - Introdução ao Pipeline de ML.pdf",
+      "aula": "1",
+      "paginas": 13,
+      "chars_total": 4385,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 02 - Ingestão de Dados e Feature Engineering.pdf",
+      "nome_nfc": "Aula 02 - Ingestão de Dados e Feature Engineering.pdf",
+      "aula": "2",
+      "paginas": 13,
+      "chars_total": 5166,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 03 - Treinamento de Modelos e Validação.pdf",
+      "nome_nfc": "Aula 03 - Treinamento de Modelos e Validação.pdf",
+      "aula": "3",
+      "paginas": 13,
+      "chars_total": 4675,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 04 - Deploy de Modelos (Implantação Inicial).pdf",
+      "nome_nfc": "Aula 04 - Deploy de Modelos (Implantação Inicial).pdf",
+      "aula": "4",
+      "paginas": 14,
+      "chars_total": 5764,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 05 - Orquestração de Pipelines com Airflow.pdf",
+      "nome_nfc": "Aula 05 - Orquestração de Pipelines com Airflow.pdf",
+      "aula": "5",
+      "paginas": 12,
+      "chars_total": 4898,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 06 - Reprodutibilidade e Qualidade do Código.pdf",
+      "nome_nfc": "Aula 06 - Reprodutibilidade e Qualidade do Código.pdf",
+      "aula": "6",
+      "paginas": 12,
+      "chars_total": 5268,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 07 - Treinamento Automático e Re - Treino de Modelos.pdf",
+      "nome_nfc": "Aula 07 - Treinamento Automático e Re - Treino de Modelos.pdf",
+      "aula": "7",
+      "paginas": 13,
+      "chars_total": 5737,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "Aula 08 - Deploy Contínuo de Modelos (CI-CD de ML).pdf",
+      "nome_nfc": "Aula 08 - Deploy Contínuo de Modelos (CI-CD de ML).pdf",
+      "aula": "8",
+      "paginas": 12,
+      "chars_total": 5758,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "Servicos de Monitoracao": [
+    {
+      "arquivo": "POSTECH - Aula 01.pdf",
+      "nome_nfc": "POSTECH - Aula 01.pdf",
+      "aula": "1",
+      "paginas": 11,
+      "chars_total": 4741,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 02.pdf",
+      "nome_nfc": "POSTECH - Aula 02.pdf",
+      "aula": "2",
+      "paginas": 11,
+      "chars_total": 4468,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 03.pdf",
+      "nome_nfc": "POSTECH - Aula 03.pdf",
+      "aula": "3",
+      "paginas": 10,
+      "chars_total": 4520,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 04.pdf",
+      "nome_nfc": "POSTECH - Aula 04.pdf",
+      "aula": "4",
+      "paginas": 10,
+      "chars_total": 4382,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 05.pdf",
+      "nome_nfc": "POSTECH - Aula 05.pdf",
+      "aula": "5",
+      "paginas": 10,
+      "chars_total": 4450,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 06.pdf",
+      "nome_nfc": "POSTECH - Aula 06.pdf",
+      "aula": "6",
+      "paginas": 10,
+      "chars_total": 4253,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 07.pdf",
+      "nome_nfc": "POSTECH - Aula 07.pdf",
+      "aula": "7",
+      "paginas": 10,
+      "chars_total": 4497,
+      "extraivel": true,
+      "erro": null
+    },
+    {
+      "arquivo": "POSTECH - Aula 08.pdf",
+      "nome_nfc": "POSTECH - Aula 08.pdf",
+      "aula": "8",
+      "paginas": 10,
+      "chars_total": 4903,
+      "extraivel": true,
+      "erro": null
+    }
+  ],
+  "(raiz)": [
+    {
+      "arquivo": "MLET - Tech Challenge Fase 3.pdf",
+      "nome_nfc": "MLET - Tech Challenge Fase 3.pdf",
+      "aula": "?",
+      "paginas": 7,
+      "chars_total": 5108,
+      "extraivel": true,
+      "erro": null
+    }
+  ]
+}

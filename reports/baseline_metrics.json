@@ -1,0 +1,223 @@
+{
+  "model": "tfidf+logistic_regression",
+  "params": {
+    "tfidf": {
+      "min_df": 2,
+      "max_features": 50000,
+      "ngram_range": [
+        1,
+        2
+      ],
+      "stop_words": "english"
+    },
+    "logistic_regression": {
+      "class_weight": "balanced",
+      "max_iter": 1000,
+      "random_state": 42
+    }
+  },
+  "vocabulary_size": 50000,
+  "condition_names": {
+    "1": "neoplasms",
+    "2": "digestive system diseases",
+    "3": "nervous system diseases",
+    "4": "cardiovascular diseases",
+    "5": "general pathological conditions"
+  },
+  "splits": {
+    "validation": {
+      "n_samples": 995,
+      "accuracy": 0.7969849246231155,
+      "macro_f1": 0.792425423075944,
+      "weighted_f1": 0.7978117662569152,
+      "classification_report": {
+        "1 - neoplasms": {
+          "precision": 0.9221789883268483,
+          "recall": 0.8977272727272727,
+          "f1-score": 0.9097888675623801,
+          "support": 264.0
+        },
+        "2 - digestive system diseases": {
+          "precision": 0.813953488372093,
+          "recall": 0.8333333333333334,
+          "f1-score": 0.8235294117647058,
+          "support": 84.0
+        },
+        "3 - nervous system diseases": {
+          "precision": 0.6592592592592592,
+          "recall": 0.717741935483871,
+          "f1-score": 0.6872586872586872,
+          "support": 124.0
+        },
+        "4 - cardiovascular diseases": {
+          "precision": 0.8448275862068966,
+          "recall": 0.8376068376068376,
+          "f1-score": 0.8412017167381974,
+          "support": 234.0
+        },
+        "5 - general pathological conditions": {
+          "precision": 0.7052631578947368,
+          "recall": 0.6955017301038062,
+          "f1-score": 0.7003484320557491,
+          "support": 289.0
+        },
+        "accuracy": 0.7969849246231155,
+        "macro avg": {
+          "precision": 0.7890964960119667,
+          "recall": 0.7963822218510241,
+          "f1-score": 0.792425423075944,
+          "support": 995.0
+        },
+        "weighted avg": {
+          "precision": 0.7990816099434017,
+          "recall": 0.7969849246231155,
+          "f1-score": 0.7978117662569152,
+          "support": 995.0
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "matrix": [
+          [
+            237,
+            4,
+            7,
+            1,
+            15
+          ],
+          [
+            3,
+            70,
+            0,
+            1,
+            10
+          ],
+          [
+            2,
+            2,
+            89,
+            5,
+            26
+          ],
+          [
+            0,
+            1,
+            4,
+            196,
+            33
+          ],
+          [
+            15,
+            9,
+            35,
+            29,
+            201
+          ]
+        ]
+      }
+    },
+    "test": {
+      "n_samples": 2657,
+      "accuracy": 0.6699284907790741,
+      "macro_f1": 0.6706725630573338,
+      "weighted_f1": 0.6626591614703979,
+      "classification_report": {
+        "1 - neoplasms": {
+          "precision": 0.729483282674772,
+          "recall": 0.8013355592654424,
+          "f1-score": 0.7637231503579952,
+          "support": 599.0
+        },
+        "2 - digestive system diseases": {
+          "precision": 0.5869565217391305,
+          "recall": 0.7132075471698113,
+          "f1-score": 0.6439522998296422,
+          "support": 265.0
+        },
+        "3 - nervous system diseases": {
+          "precision": 0.5975609756097561,
+          "recall": 0.7060518731988472,
+          "f1-score": 0.6472919418758256,
+          "support": 347.0
+        },
+        "4 - cardiovascular diseases": {
+          "precision": 0.7082683307332294,
+          "recall": 0.7964912280701755,
+          "f1-score": 0.749793559042114,
+          "support": 570.0
+        },
+        "5 - general pathological conditions": {
+          "precision": 0.65814696485623,
+          "recall": 0.4703196347031963,
+          "f1-score": 0.5486018641810919,
+          "support": 876.0
+        },
+        "accuracy": 0.6699284907790741,
+        "macro avg": {
+          "precision": 0.6560832151226237,
+          "recall": 0.6974811684814946,
+          "f1-score": 0.6706725630573338,
+          "support": 2657.0
+        },
+        "weighted avg": {
+          "precision": 0.6699688795075807,
+          "recall": 0.6699284907790741,
+          "f1-score": 0.6626591614703979,
+          "support": 2657.0
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "matrix": [
+          [
+            480,
+            24,
+            25,
+            12,
+            58
+          ],
+          [
+            31,
+            189,
+            7,
+            6,
+            32
+          ],
+          [
+            26,
+            2,
+            245,
+            17,
+            57
+          ],
+          [
+            7,
+            14,
+            28,
+            454,
+            67
+          ],
+          [
+            114,
+            93,
+            105,
+            152,
+            412
+          ]
+        ]
+      }
+    }
+  }
+}
