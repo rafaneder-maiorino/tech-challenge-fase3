@@ -143,6 +143,40 @@ jobs:
             exit 1
           }
 
+      # A instrumentação só vale se ela chega até o container. Este passo roda
+      # depois do smoke test de /predict de propósito: a predição feita ali
+      # tem de aparecer no contador por classe, o que prova que a métrica está
+      # ligada ao handler e não apenas declarada no módulo.
+      - name: Smoke test /metrics
+        run: |
+          metrics=$(curl -fsS http://localhost:8000/metrics)
+
+          echo "$metrics" | grep -q '^# TYPE api_requests_total counter' || {
+            echo "::error::/metrics não devolveu o formato de exposição do Prometheus"
+            echo "$metrics" | head -20
+            exit 1
+          }
+
+          echo "$metrics" | grep -q '^api_model_loaded 1\.0$' || {
+            echo "::error::api_model_loaded não está em 1 com o modelo carregado"
+            echo "$metrics" | grep api_model_loaded
+            exit 1
+          }
+
+          echo "$metrics" | grep -qE '^api_predictions_total\{label="[1-5]".*\} [1-9]' || {
+            echo "::error::a predição do passo anterior não foi contabilizada por classe"
+            echo "$metrics" | grep api_predictions_total
+            exit 1
+          }
+
+          echo "$metrics" | grep -q 'api_request_duration_seconds_bucket{endpoint="/predict"' || {
+            echo "::error::o histograma de latência não registrou /predict"
+            exit 1
+          }
+
+          echo "métricas expostas e populadas:"
+          echo "$metrics" | grep -E '^api_(model_loaded|predictions_total)'
+
       - name: Container logs
         if: always()
         run: docker logs tc-api || true
