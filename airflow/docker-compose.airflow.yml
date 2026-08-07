@@ -1,0 +1,143 @@
+# Stack mínima do Apache Airflow para o Tech Challenge - Fase 3, Etapa 2.
+#
+# Executor: LocalExecutor (ver justificativa em docs/airflow-setup.md).
+# Componentes: postgres (metadata DB) + airflow-init (one-shot) + scheduler + webserver.
+#
+# Uso (a partir deste diretório):
+#   cp .env.example .env   # e preencher os <GERAR> — obrigatório
+#   docker compose -f docker-compose.airflow.yml up -d --build
+#   docker compose -f docker-compose.airflow.yml down
+#
+# As imagens são multi-arch; em Apple Silicon rodam nativamente em arm64,
+# sem emulação QEMU. Por isso `platform:` NÃO é fixado — o mesmo arquivo
+# funciona em amd64 (CI, colegas de grupo em Linux/Windows).
+
+x-airflow-common: &airflow-common
+  # Imagem própria: apache/airflow:2.11.0-python3.11 + as dependências de
+  # treino do projeto, nas mesmas versões do uv.lock. Ver ./Dockerfile.
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: tech-challenge-fase3/airflow:2.11.0
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    # Requisito da tarefa: sem as ~50 DAGs de exemplo poluindo a UI.
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # DAGs novas nascem pausadas: evita disparar treino sem querer no primeiro up.
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    # Sem default: o repositório é público e nenhum segredo mora no git.
+    # Se faltar no .env, o compose falha aqui com a mensagem abaixo.
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?defina no arquivo .env - veja .env.example}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?defina no arquivo .env - veja .env.example}
+    # Expõe /health do scheduler para o healthcheck do container.
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Sao_Paulo
+    AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: America/Sao_Paulo
+    # Faz `from src.data.prepare import ...` funcionar dentro das tasks.
+    # src/ é montado em /opt/project/src, então /opt/project é a raiz de import.
+    PYTHONPATH: /opt/project
+    # src/ é montado read-only; sem isto o Python tentaria escrever __pycache__
+    # lá dentro a cada import.
+    PYTHONDONTWRITEBYTECODE: "1"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    # Código do projeto, read-only: a DAG consome src/ como está, nunca escreve.
+    - ../src:/opt/project/src:ro
+    # Artefatos, read-write: as tasks escrevem corpus, splits, modelos e métricas
+    # direto na árvore do projeto no host.
+    - ../data:/opt/project/data
+    - ../models:/opt/project/models
+    - ../reports:/opt/project/reports
+  # UID do processo dentro do container; grupo 0 (root) porque a imagem do
+  # Airflow é OpenShift-compatible e dá permissão de escrita ao grupo 0.
+  # Em macOS o padrão 50000 é o correto — ver docs/airflow-setup.md.
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    # Sem `ports:` de propósito: o banco só é acessado pela rede interna do
+    # compose. Assim não há risco de conflito com um Postgres local na 5432.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Serviço one-shot: roda as migrations e cria o usuário admin. Os demais
+  # serviços só sobem depois que este termina com sucesso.
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "$${_AIRFLOW_WWW_USER_USERNAME}" \
+          --password "$${_AIRFLOW_WWW_USER_PASSWORD}" \
+          --firstname Admin --lastname User \
+          --role Admin --email admin@example.com \
+          || true
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER:?defina no arquivo .env - veja .env.example}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?defina no arquivo .env - veja .env.example}
+    # Roda como root para conseguir ajustar dono dos diretórios montados em
+    # hosts Linux. Em macOS o Docker Desktop já mapeia o dono automaticamente.
+    user: "0:0"
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      # Host 8080 -> container 8080. A API do projeto usa 8000 (ver Dockerfile),
+      # então não há conflito. Override: AIRFLOW_WEB_PORT=8081 no .env.
+      - "${AIRFLOW_WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres-db-volume:
