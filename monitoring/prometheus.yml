@@ -1,0 +1,34 @@
+# Configuração do Prometheus para a stack de observabilidade da API.
+#
+# Sobe junto com docker-compose.monitoring.yml, que monta este arquivo em
+# /etc/prometheus/prometheus.yml dentro do container.
+
+global:
+  # 5 s em vez do padrão de 15 s. A demonstração roda por poucos minutos e
+  # rate([1m]) precisa de pelo menos quatro amostras dentro da janela para
+  # produzir um valor; com 15 s o gráfico só ficaria utilizável depois de
+  # mais de um minuto de carga.
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  # Só afeta as regras de alerta, que esta etapa não usa. Mantido explícito
+  # para o arquivo não depender de padrão implícito.
+  evaluation_interval: 15s
+  external_labels:
+    stack: tech-challenge-fase3
+
+scrape_configs:
+  # A própria API. O alvo é o nome do serviço no compose, resolvido pelo DNS
+  # interno da rede monitoring — não localhost, que dentro do container do
+  # Prometheus apontaria para ele mesmo.
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: medical-abstract-triage
+
+  # Auto-scrape: dá o `up` e o tempo de scrape do próprio Prometheus, que é
+  # como se distingue "a API não tem tráfego" de "o Prometheus parou".
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

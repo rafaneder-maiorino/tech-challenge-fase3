@@ -1,0 +1,22 @@
+# Datasource provisionado por arquivo: o Grafana lê este diretório na
+# inicialização, então a fonte de dados existe antes de qualquer login e
+# sobrevive a `docker compose down`.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # UID fixo de propósito. O JSON do dashboard referencia esta uid; se o
+    # Grafana gerasse uma aleatória, o dashboard provisionado subiria com os
+    # painéis órfãos ("datasource not found").
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Igual ao scrape_interval do prometheus.yml. É o que o Grafana usa
+      # como passo mínimo em $__rate_interval.
+      timeInterval: 5s
+      httpMethod: POST
