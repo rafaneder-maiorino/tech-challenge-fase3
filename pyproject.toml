@@ -4,14 +4,27 @@ version = "0.1.0"
 description = "Triagem de laudos médicos — Tech Challenge FIAP Fase 3"
 readme = "README.md"
 requires-python = ">=3.11"
-# Serving only. Everything the API container needs and nothing else, so the
-# runtime image stays slim. Training-time libraries live in the 'train' group.
+# Only what BOTH serving backends need. The inference engine is an extra, not
+# a base dependency: that is what lets the ONNX runtime image be built without
+# scikit-learn and scipy ever entering it. Training libraries live in the
+# 'train' group.
 dependencies = [
     "fastapi>=0.139.2",
-    "joblib>=1.5.3",
     "prometheus-client>=0.24.1",
-    "scikit-learn>=1.9.0",
     "uvicorn[standard]>=0.51.0",
+]
+
+# One extra per serving backend, selected by MODEL_BACKEND at runtime and by
+# `uv sync --extra <name>` at image build time. They are deliberately disjoint:
+# installing 'onnx' must not drag in scikit-learn, or the whole point of the
+# smaller image is lost.
+[project.optional-dependencies]
+sklearn = [
+    "joblib>=1.5.3",
+    "scikit-learn>=1.9.0",
+]
+onnx = [
+    "onnxruntime>=1.24.0",
 ]
 
 [dependency-groups]
@@ -19,6 +32,7 @@ train = [
     "huggingface-hub>=1.24.0",
     "pandas>=3.0.5",
     "pyarrow>=25.0.0",
+    "skl2onnx>=1.20.0",
 ]
 dev = [
     "httpx>=0.28.1",
@@ -28,8 +42,13 @@ dev = [
 ]
 
 [tool.uv]
-# Local development gets everything; the Docker runtime stage opts out with
+# Local development gets every group; the Docker runtime stages opt out with
 # --no-default-groups.
+#
+# Extras are NOT covered by this: uv 0.11 has no `default-extras`, so a bare
+# `uv sync` installs neither backend and the test suite cannot import either.
+# Local development and CI therefore use `uv sync --all-extras`; the images use
+# `--extra sklearn` or `--extra onnx`. See docs/optimization.md, section 3.
 default-groups = ["dev", "train"]
 
 [tool.ruff]
