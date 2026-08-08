@@ -155,8 +155,15 @@ latência é a decisão correta quando o consumidor é clínico.
 
 ## 3. Como executar
 
-Pré-requisitos: **Docker Desktop** e **uv**. O Python 3.11 é provisionado pelo
-próprio uv.
+Pré-requisitos: **Docker Desktop**, **uv**, **git** e um **Python do sistema**
+(usado só para gerar as chaves do Airflow, na seção 3.7 — o Python 3.11 que roda
+o projeto é provisionado pelo próprio uv).
+
+> **Windows:** onde este README escreve `python3`, use `python`. O interpretador
+> do Windows não instala o alias `python3`.
+
+O corpus é **público** e baixado anonimamente: não é preciso conta nem token do
+Hugging Face em nenhum passo.
 
 ### 3.1 Instalar o uv
 
@@ -218,10 +225,14 @@ Resposta:
 
 Documentação interativa (Swagger): <http://localhost:8000/docs>
 
-Para parar e remover o container:
+**Ao terminar, remova o container** — não é limpeza opcional:
 ```bash
 docker rm -f tc-api
 ```
+
+A stack de monitoramento da seção 6 sobe um serviço com **este mesmo nome e esta
+mesma porta**. Se o container avulso continuar de pé, o `docker compose up` da
+seção 6 falha com `Conflict. The container name "/tc-api" is already in use`.
 
 ### 3.3 Execução local, sem Docker
 
@@ -254,6 +265,12 @@ independentemente do engine por trás. Não exigem modelo treinado: a suíte aju
 um classificador mínimo em memória, exporta esse mesmo modelo para ONNX e aponta
 `MODEL_BACKEND` e `MODEL_PATH` para cada um.
 
+**Em clone recém-feito o placar é `68 passed, 2 skipped`, e está certo.** Dois
+testes exercitam os artefatos reais (`models/baseline.joblib` e
+`models/model.onnx`), que não são versionados; eles são pulados até você rodar a
+seção 3.3, e depois disso o placar vira `70 passed`. É o mesmo comportamento
+descrito na seção 5.4 para o CI.
+
 ### 3.5 Benchmark de latência
 
 Com o container **já em execução** (seção 3.2):
@@ -281,6 +298,86 @@ uv run ruff format .         # aplica a formatação
 
 São exatamente os dois comandos que o job `lint` do CI roda, então o que passa
 aqui passa lá. A configuração está em `pyproject.toml`, em `[tool.ruff]`.
+
+### 3.7 Airflow: a DAG de retreino (Etapa 2)
+
+Stack própria, independente da API e da monitoração. Roda a partir de
+`airflow/`.
+
+**1. Criar o `.env`.** O repositório é público, então nenhum segredo está
+versionado e o `.env` é **obrigatório** — sem ele o compose falha com uma
+mensagem apontando para o `.env.example`.
+
+```bash
+cd airflow
+cp .env.example .env
+```
+
+**2. Gerar as três chaves** marcadas como `<GERAR>` e colá-las no `.env`
+(no Windows, troque `python3` por `python`):
+
+```bash
+# AIRFLOW_FERNET_KEY — criptografa Connections e Variables
+python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+
+# AIRFLOW_SECRET_KEY — assina os cookies de sessão da UI
+python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# AIRFLOW_ADMIN_PASSWORD — senha do admin da UI
+python3 -c "import secrets; print(secrets.token_urlsafe(12))"
+```
+
+**3. Subir.** O `--build` é necessário na primeira vez: a imagem é a oficial do
+Airflow mais as dependências de treino do projeto.
+
+```bash
+docker compose -f docker-compose.airflow.yml up -d --build
+```
+
+O primeiro start demora alguns minutos — o `airflow-init` roda as migrations e
+cria o usuário antes de os outros serviços subirem. Para acompanhar:
+
+```bash
+docker compose -f docker-compose.airflow.yml logs -f airflow-init
+```
+
+**4. Abrir a UI** em <http://localhost:8080> e entrar com `AIRFLOW_ADMIN_USER`
+(padrão `airflow`) e a senha gerada no passo 2. A DAG `train_pipeline` aparece
+na lista, **pausada** — de propósito, para o primeiro `up` não disparar um
+treino sozinho.
+
+**5. Disparar.** Pela UI, destravar o toggle da DAG e clicar em ▶ (*Trigger
+DAG*). Ou pela linha de comando:
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler \
+  airflow dags unpause train_pipeline
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler \
+  airflow dags trigger train_pipeline
+```
+
+A DAG baixa o corpus, prepara os splits, treina e só promove o modelo se o
+macro-F1 passar do gate de 0,62. Os artefatos aparecem em `models/` e
+`reports/` na raiz do projeto, que são montados no container.
+
+**Conferir sem abrir a UI:**
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler \
+  airflow dags list
+docker compose -f docker-compose.airflow.yml exec airflow-scheduler \
+  airflow dags list-runs -d train_pipeline
+```
+
+**Derrubar:**
+
+```bash
+docker compose -f docker-compose.airflow.yml down     # preserva o histórico
+docker compose -f docker-compose.airflow.yml down -v  # reset total do banco
+```
+
+Executor escolhido, decisões de porta e UID, o que cada task faz e o quality
+gate: [`docs/airflow-setup.md`](docs/airflow-setup.md).
 
 ---
 
@@ -409,9 +506,18 @@ instrumentada, o Prometheus coletando e o Grafana com datasource e dashboard
 provisionados por arquivo. Independente da stack do Airflow.
 
 ```bash
+docker rm -f tc-api                       # se você rodou a seção 3.2, veja abaixo
 docker compose -f docker-compose.monitoring.yml up -d --build
 uv run python scripts/generate_load.py --duration 180
 ```
+
+A primeira linha não é zelo: a stack sobe um serviço chamado `tc-api` na porta
+8000, o mesmo nome e a mesma porta do container avulso da seção 3.2. Com ele de
+pé, o `up` falha com `Conflict. The container name "/tc-api" is already in use`.
+
+Se você não rodou a seção 3.2, o `docker rm -f` imprime
+`Error response from daemon: No such container: tc-api` e **sai com sucesso** —
+pode ignorar a mensagem e seguir.
 
 | Serviço | URL | Imagem |
 |---|---|---|
@@ -455,12 +561,43 @@ O pipeline foi exportado para ONNX e quantizado, a API ganhou um segundo backend
 de serving selecionável por `MODEL_BACKEND`, e os dois runtimes foram medidos
 lado a lado.
 
+**Gerar os grafos e a imagem ONNX** (a seção 3.3 já cobre o `export_onnx`):
+
 ```bash
 uv run python -m src.models.export_onnx          # converte, quantiza e valida
 docker build -f Dockerfile.onnx -t tc-fase3-api:onnx .
-MODEL_BACKEND=onnx uv run uvicorn src.api.main:app
-uv run python scripts/compare_backends.py        # comparativo de latência
 ```
+
+**Servir pelo backend ONNX**, sem Docker. Este comando é bloqueante — ele ocupa
+o terminal enquanto a API estiver no ar:
+
+```bash
+MODEL_BACKEND=onnx uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+**Rodar o comparativo de latência.** Ele não usa o uvicorn acima: precisa dos
+**dois backends no ar ao mesmo tempo**, em portas diferentes, com o container
+ONNX apontado para o grafo *quantizado* (que já vem na imagem). Em outro
+terminal, com a API da seção 3.2 parada:
+
+```bash
+docker rm -f tc-bench-sk tc-bench-onnx
+
+docker run -d --name tc-bench-sk   --no-healthcheck -p 8000:8000 \
+  tc-fase3-api:latest
+docker run -d --name tc-bench-onnx --no-healthcheck -p 8001:8000 \
+  -e MODEL_PATH=/app/models/model.quantized.onnx tc-fase3-api:onnx
+
+uv run python scripts/compare_backends.py
+
+docker rm -f tc-bench-sk tc-bench-onnx
+```
+
+O comparativo carrega os artefatos **locais** para medir a inferência pura, então
+exige que a seção 3.3 já tenha rodado. Para a medição valer, nenhuma outra stack
+deste projeto pode estar no ar — o procedimento completo, com a justificativa de
+cada escolha, está em
+[`docs/optimization.md`](docs/optimization.md), seção 11.
 
 | O que | Antes (sklearn) | Depois (ONNX quantizado) | Variação |
 |---|---|---|---|
@@ -543,9 +680,12 @@ docs/
 reports/                    # métricas do modelo, latência, equivalência e comparativo
 ```
 
-Dados brutos, `data/processed/` e `models/*.joblib` não são versionados — são
-regenerados pelos comandos da seção 3.3. A justificativa da escolha (baixar
-com revisão fixa em vez de versionar parquet) está na seção 7 do dataset card.
+Dados brutos, `data/processed/`, `models/*.joblib` e `models/*.onnx` não são
+versionados — são regenerados pelos comandos da seção 3.3, nesta ordem:
+`src.data.prepare` produz os splits, `src.models.baseline` produz o
+`baseline.joblib`, e `src.models.export_onnx` produz `model.onnx` e
+`model.quantized.onnx` a partir dele. A justificativa da escolha (baixar com
+revisão fixa em vez de versionar parquet) está na seção 7 do dataset card.
 
 ---
 
