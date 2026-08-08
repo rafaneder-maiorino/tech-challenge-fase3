@@ -17,11 +17,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-import joblib
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.backends import artifact_path, backend_name, load_backend
 from src.api.metrics import (
     initialise_prediction_series,
     metrics_middleware,
@@ -33,7 +33,6 @@ from src.labels import CONDITION_NAMES
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_MODEL_PATH = Path("models/baseline.joblib")
 # Corpus abstracts top out at 3,999 characters. The cap is generous enough to
 # accept any realistic report while bounding worst-case inference latency.
 MAX_TEXT_CHARS = 20_000
@@ -41,36 +40,41 @@ MODEL_VERSION = os.getenv("MODEL_VERSION", "baseline-tfidf-logreg")
 
 
 def model_path() -> Path:
-    """Resolve the model path, allowing an override via ``MODEL_PATH``."""
-    return Path(os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH)))
+    """Resolve the artifact path for the configured backend."""
+    return artifact_path(backend_name())
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load the classifier once at startup and release it on shutdown."""
+    name = backend_name()
     path = model_path()
     app.state.model = None
     app.state.model_path = str(path)
     app.state.model_version = MODEL_VERSION
+    app.state.model_backend = name
     initialise_prediction_series()
     set_model_loaded(False)
 
     try:
         started = time.perf_counter()
-        app.state.model = joblib.load(path)
+        app.state.model = load_backend(name, path)
         elapsed_ms = (time.perf_counter() - started) * 1000
         set_model_loaded(True)
-        LOGGER.info("model loaded from %s in %.1f ms", path, elapsed_ms)
+        LOGGER.info("backend %r loaded from %s in %.1f ms", name, path, elapsed_ms)
     except FileNotFoundError:
         # Startup deliberately succeeds so /health can report the problem
         # instead of the container crash-looping with no diagnosis.
         LOGGER.error(
             "model file not found at %s; /predict will return 503. "
-            "Run: uv run python -m src.models.baseline",
+            "Run: uv run python -m src.models.baseline"
+            " (or -m src.models.export_onnx for the ONNX backend)",
             path,
         )
     except Exception:
-        LOGGER.exception("failed to load model from %s; /predict will return 503", path)
+        LOGGER.exception(
+            "failed to load backend %r from %s; /predict will return 503", name, path
+        )
 
     yield
 
@@ -133,6 +137,9 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     model_path: str
     model_version: str
+    # Reported so a side-by-side latency run can prove which engine answered,
+    # rather than inferring it from which container was started.
+    model_backend: str = Field(description="'sklearn' or 'onnx'.")
 
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
@@ -144,6 +151,7 @@ def health(request: Request) -> HealthResponse:
         model_loaded=loaded,
         model_path=request.app.state.model_path,
         model_version=request.app.state.model_version,
+        model_backend=request.app.state.model_backend,
     )
 
 
@@ -174,15 +182,13 @@ def predict(payload: PredictRequest, request: Request) -> PredictResponse:
         )
 
     started = time.perf_counter()
-    probabilities = model.predict_proba([payload.text])[0]
-    best = int(probabilities.argmax())
-    label = int(model.classes_[best])
+    label, confidence = model.predict(payload.text)
     latency_ms = (time.perf_counter() - started) * 1000
     observe_prediction(label)
 
     return PredictResponse(
         label=label,
         label_name=CONDITION_NAMES.get(label, "unknown"),
-        confidence=float(probabilities[best]),
+        confidence=confidence,
         latency_ms=round(latency_ms, 3),
     )
