@@ -1,0 +1,67 @@
+# Fins de linha fixados no repositório, não na configuração de quem clona.
+#
+# Motivo: no Windows o padrão comum é `core.autocrlf=true`, que converte para
+# CRLF no checkout. Arquivos que só o Linux lê — o `.env.example` consumido
+# dentro do container do Airflow, os scripts e os YAML das stacks — quebram
+# com CRLF, e o erro aparece longe da causa. O teste cross-platform de
+# 2026-08-08 só passou porque foi clonado com `git -c core.autocrlf=false`;
+# depender disso é frágil, porque exige que o avaliador saiba.
+#
+# Com este arquivo o resultado é o mesmo em qualquer máquina, independentemente
+# de `core.autocrlf` e `core.eol`.
+#
+# A ORDEM IMPORTA: a última regra que casa é a que vale. Os binários vêm
+# primeiro para que `Dockerfile.onnx` — que é texto, apesar do sufixo — seja
+# pego pela regra de `Dockerfile*` logo abaixo.
+
+# Default: o git decide o que é texto e normaliza para LF no repositório.
+* text=auto
+
+# --------------------------------------------------------------------------
+# Binários: nunca converter, nunca tentar fazer diff de linha.
+# Nenhum destes está versionado hoje (models/ e data/ são gerados e ignorados),
+# mas o pipeline os produz, e a regra evita corrupção se algum dia entrarem.
+# --------------------------------------------------------------------------
+*.parquet   -text
+*.joblib    -text
+*.onnx      -text
+*.png       -text
+*.jpg       -text
+*.jpeg      -text
+*.ico       -text
+*.gif       -text
+*.pdf       -text
+
+# --------------------------------------------------------------------------
+# Texto com LF obrigatório no checkout, em qualquer sistema operacional.
+# --------------------------------------------------------------------------
+*.py        text eol=lf
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.cfg       text eol=lf
+*.ini       text eol=lf
+*.lock      text eol=lf
+
+# Sem extensão ou com nome fixo.
+Dockerfile          text eol=lf
+Dockerfile.*        text eol=lf
+.dockerignore       text eol=lf
+.gitignore          text eol=lf
+.gitattributes      text eol=lf
+.gitkeep            text eol=lf
+.python-version     text eol=lf
+
+# --------------------------------------------------------------------------
+# `.env.example`: o caso que mais dói se escapar. O compose do Airflow o copia
+# para `.env` e o container Linux lê os valores; com CRLF, cada variável
+# carrega um `\r` invisível no fim — a FERNET_KEY fica inválida e o erro que
+# aparece não menciona fim de linha em lugar nenhum.
+# --------------------------------------------------------------------------
+.env.example        text eol=lf
+*.env.example       text eol=lf
+airflow/.env.example text eol=lf
