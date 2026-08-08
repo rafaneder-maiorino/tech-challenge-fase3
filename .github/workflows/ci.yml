@@ -75,15 +75,17 @@ jobs:
           cache-dependency-glob: uv.lock
           cache-suffix: test
 
-      # The suite exercises the API against a synthetic stand-in model, so the
-      # training libraries (pandas, pyarrow, hub client) are not needed here.
+      # --all-extras installs both serving backends, because the API contract
+      # suite now runs against each of them. The 'train' group comes back in
+      # too: the ONNX fixture is exported through src.models.export_onnx, so
+      # the suite needs skl2onnx to build it.
       - name: Install test dependencies
-        run: uv sync --frozen --no-group train
+        run: uv sync --frozen --all-extras
 
       # Coverage is scoped to src/api because that is what this suite tests:
       # an API contract suite, not a model-quality suite. The data and training
       # modules are exercised for real by the 'build' job, which runs the full
-      # download + train pipeline inside the image.
+      # download + train + export pipeline inside the image.
       - name: pytest
         run: |
           uv run --no-sync pytest -v \
@@ -177,10 +179,106 @@ jobs:
           echo "métricas expostas e populadas:"
           echo "$metrics" | grep -E '^api_(model_loaded|predictions_total)'
 
+      # ------------------------------------------------------------------
+      # ONNX runtime image (phase 4). Built here rather than in its own job
+      # so the two images are measured on the same runner, which is the only
+      # way the size comparison means anything.
+      # ------------------------------------------------------------------
+      - name: Build ONNX image
+        run: docker build -f Dockerfile.onnx -t tc-fase3-api:ci-onnx .
+
+      - name: Start ONNX container
+        run: docker run -d --name tc-api-onnx -p 8001:8000 tc-fase3-api:ci-onnx
+
+      - name: Wait for the ONNX container to report the model loaded
+        run: |
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS http://localhost:8001/health 2>/dev/null || true)
+            if [ -n "$body" ] && echo "$body" | grep -q '"model_loaded":true'; then
+              echo "ready after ${attempt}s: $body"
+              echo "$body" | grep -q '"model_backend":"onnx"' || {
+                echo "::error::container reports a backend other than onnx"
+                exit 1
+              }
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::ONNX /health did not report model_loaded=true within 30s"
+          echo "last response: ${body:-<none>}"
+          docker logs tc-api-onnx
+          exit 1
+
+      # Both containers are up, so the same input can be sent to each. The
+      # labels have to match: the ONNX graph is an export of the very model
+      # the other container loaded, and a mismatch here means the export is
+      # stale or wrong, which the equivalence report alone would not catch.
+      - name: Both backends agree on the same input
+        run: |
+          payload='{"text":"Acute myocardial infarction treated with coronary angioplasty."}'
+          sklearn=$(curl -fsS -X POST http://localhost:8000/predict \
+            -H 'Content-Type: application/json' -d "$payload")
+          onnx=$(curl -fsS -X POST http://localhost:8001/predict \
+            -H 'Content-Type: application/json' -d "$payload")
+          echo "sklearn: $sklearn"
+          echo "onnx   : $onnx"
+
+          label_of() { echo "$1" | sed -n 's/.*"label":\([0-9]*\).*/\1/p'; }
+          a=$(label_of "$sklearn"); b=$(label_of "$onnx")
+          case "$b" in [1-5]) ;; *) echo "::error::ONNX returned no valid label"; exit 1 ;; esac
+          [ "$a" = "$b" ] || {
+            echo "::error::backends disagree: sklearn=$a onnx=$b"
+            exit 1
+          }
+          echo "ambos classificaram como label=$a"
+
+      # The deliverable of this phase. Printed to the summary so the number is
+      # visible without digging through logs.
+      - name: Report image sizes
+        run: |
+          sk=$(docker images tc-fase3-api:ci --format '{{.Size}}')
+          on=$(docker images tc-fase3-api:ci-onnx --format '{{.Size}}')
+          sk_b=$(docker image inspect tc-fase3-api:ci --format '{{.Size}}')
+          on_b=$(docker image inspect tc-fase3-api:ci-onnx --format '{{.Size}}')
+          delta=$(awk "BEGIN{printf \"%.1f\", 100*($on_b-$sk_b)/$sk_b}")
+          {
+            echo "### Tamanho das imagens"
+            echo ""
+            echo "| Runtime | docker images | bytes |"
+            echo "|---|---|---|"
+            echo "| sklearn | $sk | $sk_b |"
+            echo "| onnx | $on | $on_b |"
+            echo ""
+            echo "Variação: **${delta}%**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "sklearn=$sk ($sk_b B) | onnx=$on ($on_b B) | ${delta}%"
+
+      # Proves the claim rather than trusting the uv flags: if scikit-learn or
+      # scipy ever leak back into the ONNX runtime, the size gain is gone and
+      # this step is what says so.
+      - name: ONNX runtime carries no scikit-learn or scipy
+        run: |
+          packages=$(docker run --rm --entrypoint sh tc-fase3-api:ci-onnx \
+            -c 'ls /opt/venv/lib/python3.11/site-packages')
+          echo "$packages" | tr '\n' ' '
+          for forbidden in sklearn scipy joblib pandas; do
+            echo "$packages" | grep -qx "$forbidden" && {
+              echo "::error::$forbidden presente no runtime ONNX"
+              exit 1
+            }
+          done
+          echo "$packages" | grep -qx onnxruntime || {
+            echo "::error::onnxruntime ausente no runtime ONNX"
+            exit 1
+          }
+          echo "OK: runtime ONNX sem sklearn/scipy/joblib/pandas"
+
       - name: Container logs
         if: always()
-        run: docker logs tc-api || true
+        run: |
+          docker logs tc-api || true
+          docker logs tc-api-onnx || true
 
-      - name: Stop container
+      - name: Stop containers
         if: always()
-        run: docker rm -f tc-api || true
+        run: docker rm -f tc-api tc-api-onnx || true
