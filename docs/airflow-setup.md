@@ -255,6 +255,37 @@ para `ensure_dataset()`, `prepare()` e `train_baseline()`.
 O banco de metadados fica em um volume nomeado (`postgres-db-volume`), não em
 bind mount — assim `down` preserva o histórico de execuções e só `down -v` reseta.
 
+### Nome do projeto compose
+
+O `docker-compose.airflow.yml` fixa `name: tc-fase3-airflow`, no mesmo padrão do
+`docker-compose.monitoring.yml` (`tc-fase3-monitoring`). Isso não é cosmético.
+
+Sem `name:`, o compose deriva o nome do projeto do **diretório**, que aqui é só
+`airflow` — genérico o bastante para colidir. Containers, rede e o volume do
+Postgres passam a ser compartilhados por qualquer outra pasta `airflow/` da
+máquina, incluindo um segundo checkout deste mesmo repositório. O efeito não é
+um erro: subir a stack a partir do segundo checkout **remove os containers do
+primeiro**, em silêncio, e os dois passam a escrever no mesmo banco de
+metadados. Foi reproduzido na simulação de clone limpo de 2026-08-07.
+
+**Se você já subiu a stack antes desta mudança**, existe um projeto antigo
+chamado `airflow` com o volume `airflow_postgres-db-volume`. Ele não é mais
+enxergado pelo compose e fica órfão. Para limpar:
+
+```bash
+# confere o que sobrou do projeto antigo
+docker compose -p airflow -f docker-compose.airflow.yml ps
+
+# remove containers e rede, preservando o volume
+docker compose -p airflow -f docker-compose.airflow.yml down
+
+# se o histórico de execuções antigo não importa, apaga o volume também
+docker volume rm airflow_postgres-db-volume
+```
+
+O histórico de execuções da DAG é metadado de desenvolvimento local, não
+entregável — recriá-lo do zero custa um `up -d` e uma execução manual.
+
 ---
 
 ## A imagem própria (`airflow/Dockerfile`)
