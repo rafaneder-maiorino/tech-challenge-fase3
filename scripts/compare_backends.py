@@ -95,6 +95,31 @@ CONTAINER_PROTOCOL = (
 )
 
 
+def check_local_artifacts() -> None:
+    """Fail early, and readably, when the level A artifacts are missing.
+
+    Level A loads the models in-process, so it needs the files on disk -- not
+    just the containers. Someone who only followed the Docker quickstart has
+    images but an empty ``models/``, and without this check the run dies on a
+    bare ``FileNotFoundError`` traceback from inside joblib, a hundred lines
+    away from the thing they actually skipped.
+    """
+    missing = [path for path in ARTIFACTS.values() if not path.is_file()]
+    if not missing:
+        return
+
+    listed = ", ".join(str(path) for path in missing)
+    raise RuntimeError(
+        f"missing local model artifact(s): {listed}.\n"
+        "Level A measures inference in-process, so the files have to exist "
+        "on disk -- having the containers running is not enough.\n"
+        "Generate them with the section 3.3 commands:\n"
+        "    uv run python -m src.data.prepare\n"
+        "    uv run python -m src.models.baseline\n"
+        "    uv run python -m src.models.export_onnx"
+    )
+
+
 # --------------------------------------------------------------------------
 # Level A: pure inference, in-process
 # --------------------------------------------------------------------------
@@ -383,6 +408,11 @@ def log_level_table(title: str, note: str, results: dict) -> None:
 
 def compare(args: argparse.Namespace) -> dict:
     """Run all three levels for both backends and build the report."""
+    # Both preconditions are checked before any measurement starts: finding
+    # out at level A that the artifacts are missing would mean discarding the
+    # HTTP work already done.
+    check_local_artifacts()
+
     urls = {SKLEARN: args.sklearn_url, ONNX: args.onnx_url}
 
     health = {
@@ -595,10 +625,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         report = compare(args)
-    except (RuntimeError, httpx.HTTPError) as error:
+    except RuntimeError as error:
+        # Already carries its own remedy; appending a generic hint would only
+        # bury it.
+        LOGGER.error("%s", error)
+        return 1
+    except httpx.HTTPError as error:
         LOGGER.error("%s", error)
         LOGGER.error(
-            "Both containers must be up. See docs/optimization.md, section 11."
+            "Both containers must be up, on ports 8000 and 8001. "
+            "See docs/optimization.md, section 11."
         )
         return 1
     log_report(report)
