@@ -5,16 +5,16 @@ clínica, servido por uma API REST em container Docker. O projeto exercita o
 ciclo de vida completo do modelo em produção: preparação de dados, treino,
 serving, CI/CD, orquestração, monitoração e otimização de latência.
 
-**Status:** Etapa 1 concluída (decisão arquitetural + API em Docker + baseline
-de latência). Etapa 2 em andamento: pipeline de CI/CD no ar, DAG do Airflow
-pendente.
+**Status:** Etapas 1 a 3 concluídas — decisão arquitetural, API em Docker,
+baseline de latência, CI/CD, DAG de retreino no Airflow e a stack de
+monitoração com Prometheus e Grafana. Falta a Etapa 4.
 
 | Entrega | Estado |
 |---|---|
 | Etapa 1 — Decisão arquitetural e API inicial | ✅ concluída |
 | Etapa 2 — CI/CD (GitHub Actions) | ✅ concluída |
-| Etapa 2 — DAG de retreino (Airflow) | ⏳ pendente |
-| Etapa 3 — Prometheus + Grafana via Docker Compose | ⏳ pendente |
+| Etapa 2 — DAG de retreino (Airflow) | ✅ concluída |
+| Etapa 3 — Prometheus + Grafana via Docker Compose | ✅ concluída |
 | Etapa 4 — Otimização de latência (ONNX/quantização) + vídeo | ⏳ pendente |
 
 ---
@@ -388,24 +388,82 @@ CI: ele exige `models/baseline.joblib`, que não é versionado. No CI o placar �
 
 ---
 
-## 6. Estrutura do projeto
+## 6. Monitoração (Etapa 3)
+
+Stack de observabilidade em três serviços numa rede compartilhada: a API
+instrumentada, o Prometheus coletando e o Grafana com datasource e dashboard
+provisionados por arquivo. Independente da stack do Airflow.
+
+```bash
+docker compose -f docker-compose.monitoring.yml up -d --build
+uv run python scripts/generate_load.py --duration 180
+```
+
+| Serviço | URL | Imagem |
+|---|---|---|
+| API | <http://localhost:8000> | build local do `Dockerfile` |
+| Prometheus | <http://localhost:9090> | `prom/prometheus:v3.13.2` |
+| Grafana | <http://localhost:3000> | `grafana/grafana:13.1.3` |
+
+O Grafana abre direto no dashboard, com acesso anônimo em papel `Viewer` — é uma
+stack local de avaliação, não expor assim fora de `localhost`.
+
+Métricas expostas em `GET /metrics`:
+
+| Métrica | Tipo | O que responde |
+|---|---|---|
+| `api_requests_total` | Counter | tráfego por rota e status HTTP |
+| `api_request_duration_seconds` | Histogram | latência ponta a ponta do handler |
+| `api_predictions_total` | Counter | predições por classe (1 a 5) |
+| `api_model_loaded` | Gauge | serviço apto a servir, ou só no ar |
+
+As duas últimas são observabilidade de **modelo**, não de HTTP.
+`api_model_loaded` existe por causa do achado da Etapa 1: a API sobe mesmo sem
+conseguir carregar o artefato, para que `/health` reporte o problema em vez de o
+container entrar em crash loop — e nesse estado ela responde `503` em todo
+`/predict` enquanto qualquer check de liveness a considera saudável.
+
+O ajuste não trivial foi a calibração dos buckets do histograma, que mudou
+depois da primeira medição sob carga real: o número de 0,55 ms da Etapa 1 é
+inferência sequencial, mas sob concorrência a latência ponta a ponta fica em
+~3,8 ms porque o handler é síncrono e roda no threadpool do Starlette. Os dois
+regimes precisam de fronteiras próprias.
+
+Detalhes, queries PromQL e o snapshot do dashboard populado:
+[`docs/monitoring-setup.md`](docs/monitoring-setup.md) e
+[`docs/monitoring-dashboard-snapshot.md`](docs/monitoring-dashboard-snapshot.md).
+
+---
+
+## 7. Estrutura do projeto
 
 ```
 .github/workflows/
   ci.yml                    # CI: lint, testes e build da imagem (Etapa 2)
 src/
   labels.py                 # vocabulário de classes, sem dependências pesadas
-  api/main.py               # FastAPI: /predict e /health
+  api/main.py               # FastAPI: /predict, /health e /metrics
+  api/metrics.py            # instrumentação Prometheus (Etapa 3)
   data/download.py          # download do corpus (revisão fixa + checksum)
   data/prepare.py           # dedup, vazamento, split estratificado
   models/baseline.py        # TF-IDF + LogisticRegression
   experiments/              # comparação de estratégias de rótulo
+airflow/                    # stack do Airflow, DAG de retreino (Etapa 2)
+docker-compose.monitoring.yml   # API + Prometheus + Grafana (Etapa 3)
+monitoring/
+  prometheus.yml            # scrape da API
+  grafana/provisioning/     # datasource e provider de dashboards
+  grafana/dashboards/       # dashboard versionado, 8 painéis
 scripts/
   benchmark_latency.py      # baseline de latência da Etapa 1
+  generate_load.py          # tráfego misto para popular os painéis
   inspect_*.py              # EDA exploratória
-tests/                      # testes de contrato da API
+tests/                      # testes de contrato da API e das métricas
 docs/
   dataset-card.md           # fonte, EDA, decisões e limitações do dataset
+  airflow-setup.md          # DAG de retreino e quality gate
+  monitoring-setup.md       # stack de observabilidade e queries PromQL
+  monitoring-dashboard-snapshot.md   # dashboard populado, valores medidos
   _conhecimento/            # transcrições das aulas
 reports/                    # métricas do modelo e de latência
 ```
@@ -416,7 +474,7 @@ com revisão fixa em vez de versionar parquet) está na seção 7 do dataset car
 
 ---
 
-## 7. Referências
+## 8. Referências
 
 - Enunciado e critérios: [`docs/_conhecimento/07-tech-challenge-fase3.md`](docs/_conhecimento/07-tech-challenge-fase3.md)
 - Mapa de aulas por critério: [`docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md`](docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md)

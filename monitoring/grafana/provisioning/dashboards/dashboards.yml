@@ -1,0 +1,22 @@
+# Provider de dashboards: aponta o Grafana para os JSONs versionados no
+# repositório. Nenhum painel é criado pela UI — o requisito é que a stack
+# suba com o dashboard pronto depois de um `down` completo.
+
+apiVersion: 1
+
+providers:
+  - name: tech-challenge
+    orgId: 1
+    folder: Tech Challenge
+    type: file
+    # Impede que uma edição acidental na UI apague o arquivo de origem.
+    disableDeletion: true
+    # Reaplica o arquivo a cada 30 s: editar o JSON no host reflete na UI
+    # sem recriar o container.
+    updateIntervalSeconds: 30
+    # Deixa editar na UI para exportar o JSON ajustado; a fonte de verdade
+    # continua sendo o arquivo, que sobrescreve a edição no próximo ciclo.
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

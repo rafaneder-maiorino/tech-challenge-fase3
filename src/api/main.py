@@ -18,9 +18,17 @@ from pathlib import Path
 from typing import Annotated
 
 import joblib
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.metrics import (
+    initialise_prediction_series,
+    metrics_middleware,
+    metrics_response,
+    observe_prediction,
+    set_model_loaded,
+)
 from src.labels import CONDITION_NAMES
 
 LOGGER = logging.getLogger(__name__)
@@ -44,11 +52,14 @@ async def lifespan(app: FastAPI):
     app.state.model = None
     app.state.model_path = str(path)
     app.state.model_version = MODEL_VERSION
+    initialise_prediction_series()
+    set_model_loaded(False)
 
     try:
         started = time.perf_counter()
         app.state.model = joblib.load(path)
         elapsed_ms = (time.perf_counter() - started) * 1000
+        set_model_loaded(True)
         LOGGER.info("model loaded from %s in %.1f ms", path, elapsed_ms)
     except FileNotFoundError:
         # Startup deliberately succeeds so /health can report the problem
@@ -64,6 +75,7 @@ async def lifespan(app: FastAPI):
     yield
 
     app.state.model = None
+    set_model_loaded(False)
     LOGGER.info("model released")
 
 
@@ -76,6 +88,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Registered as the only middleware, so the timing it records is the whole
+# server-side cost of a request: validation, inference and serialisation.
+app.middleware("http")(metrics_middleware)
 
 
 class PredictRequest(BaseModel):
@@ -131,6 +147,19 @@ def health(request: Request) -> HealthResponse:
     )
 
 
+@app.get(
+    "/metrics",
+    tags=["ops"],
+    summary="Prometheus metrics",
+    response_class=Response,
+    responses={200: {"content": {CONTENT_TYPE_LATEST: {}}}},
+    include_in_schema=False,
+)
+def metrics() -> Response:
+    """Expose the Prometheus exposition format for scraping."""
+    return metrics_response()
+
+
 @app.post("/predict", response_model=PredictResponse, tags=["inference"])
 def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     """Classify one abstract into a clinical area."""
@@ -149,6 +178,7 @@ def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     best = int(probabilities.argmax())
     label = int(model.classes_[best])
     latency_ms = (time.perf_counter() - started) * 1000
+    observe_prediction(label)
 
     return PredictResponse(
         label=label,

@@ -1,0 +1,111 @@
+# Stack de observabilidade da API — Tech Challenge Fase 3, Etapa 3.
+#
+# Três serviços numa rede compartilhada: a API (buildada do Dockerfile do
+# projeto), o Prometheus (scrape de api:8000/metrics) e o Grafana (datasource
+# e dashboard provisionados por arquivo).
+#
+# Uso (a partir da raiz do repositório):
+#   docker compose -f docker-compose.monitoring.yml up -d --build
+#   uv run python scripts/generate_load.py --duration 120
+#   docker compose -f docker-compose.monitoring.yml down
+#
+# Esta stack é independente da do Airflow (airflow/docker-compose.airflow.yml):
+# projetos, redes e portas diferentes, nada é compartilhado entre as duas.
+#
+# Versões fixadas em todas as imagens. `:latest` faria a mesma árvore de
+# código produzir stacks diferentes conforme a data do `docker compose up`,
+# e um dashboard provisionado é sensível à versão do Grafana que o lê.
+
+name: tc-fase3-monitoring
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tech-challenge-fase3/api:monitoring
+    container_name: tc-api
+    ports:
+      # Exposta no host para o gerador de carga e para curl manual. O
+      # Prometheus não usa esta porta; fala com api:8000 pela rede interna.
+      - "${API_PORT:-8000}:8000"
+    environment:
+      MODEL_VERSION: ${MODEL_VERSION:-baseline-tfidf-logreg}
+    # Readiness, não liveness: o mesmo critério do Dockerfile — processo no ar
+    # com model_loaded=false não conta como pronto.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, sys, urllib.request
+          r = urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=4)
+          sys.exit(0 if r.status == 200 and json.load(r)["model_loaded"] else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [monitoring]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.13.2
+    container_name: tc-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Volume nomeado: sem ele a série histórica morre a cada `down`, e a
+      # prova de que o dashboard sobrevive ao ciclo ficaria com gráficos
+      # vazios mesmo com o provisionamento correto.
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 7 dias bastam para a demonstração e limitam o disco do volume.
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [monitoring]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.3
+    container_name: tc-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Stack local de avaliação: acesso anônimo só para o dashboard abrir
+      # direto na banca, sem tela de login. Viewer, então ninguém edita sem
+      # autenticar. Não usar assim fora do localhost.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+      # Abre a home direto no dashboard provisionado (uid do JSON).
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/api-monitoring.json
+      # Sem telemetria e sem checagem de versão: a stack roda offline.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks: [monitoring]
+    restart: unless-stopped
+
+networks:
+  # Rede própria e explícita: os três serviços se enxergam pelo nome do
+  # serviço (api, prometheus, grafana) e nada da stack do Airflow entra aqui.
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
