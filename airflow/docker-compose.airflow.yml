@@ -12,6 +12,14 @@
 # sem emulação QEMU. Por isso `platform:` NÃO é fixado — o mesmo arquivo
 # funciona em amd64 (CI, colegas de grupo em Linux/Windows).
 
+# Nome do projeto fixo, no mesmo padrão do docker-compose.monitoring.yml
+# (tc-fase3-monitoring). Sem isto o compose deriva o nome do diretório — que
+# aqui é só "airflow" — e dois checkouts do repositório na mesma máquina
+# passam a compartilhar containers, rede e o volume do Postgres. Na prática:
+# subir a stack a partir do segundo checkout REMOVE os containers do primeiro,
+# silenciosamente. Reproduzido em 2026-08-07, na simulação de clone limpo.
+name: tc-fase3-airflow
+
 x-airflow-common: &airflow-common
   # Imagem própria: apache/airflow:2.11.0-python3.11 + as dependências de
   # treino do projeto, nas mesmas versões do uv.lock. Ver ./Dockerfile.
