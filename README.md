@@ -6,8 +6,10 @@ ciclo de vida completo do modelo em produção: preparação de dados, treino,
 serving, CI/CD, orquestração, monitoração e otimização de latência.
 
 **Status:** Etapas 1 a 3 concluídas — decisão arquitetural, API em Docker,
-baseline de latência, CI/CD, DAG de retreino no Airflow e a stack de
-monitoração com Prometheus e Grafana. Falta a Etapa 4.
+baseline de latência, CI/CD, DAG de retreino no Airflow e a stack de monitoração
+com Prometheus e Grafana. A Etapa 4 está na parte 1 de 3: o modelo já é servido
+por ONNX quantizado num runtime sem scikit-learn. Faltam o benchmark comparativo
+de latência e o vídeo.
 
 | Entrega | Estado |
 |---|---|
@@ -15,7 +17,9 @@ monitoração com Prometheus e Grafana. Falta a Etapa 4.
 | Etapa 2 — CI/CD (GitHub Actions) | ✅ concluída |
 | Etapa 2 — DAG de retreino (Airflow) | ✅ concluída |
 | Etapa 3 — Prometheus + Grafana via Docker Compose | ✅ concluída |
-| Etapa 4 — Otimização de latência (ONNX/quantização) + vídeo | ⏳ pendente |
+| Etapa 4 — ONNX, quantização e runtime enxuto (parte 1/3) | ✅ concluída |
+| Etapa 4 — Benchmark comparativo de latência (parte 2/3) | ⏳ pendente |
+| Etapa 4 — Vídeo de demonstração (parte 3/3) | ⏳ pendente |
 
 ---
 
@@ -224,11 +228,16 @@ docker rm -f tc-api
 Os comandos são idênticos nos dois sistemas.
 
 ```bash
-uv sync                                  # cria o ambiente e instala tudo
+uv sync --all-extras                     # cria o ambiente e instala tudo
 uv run python -m src.data.prepare        # baixa o corpus e gera data/processed/
 uv run python -m src.models.baseline     # treina e salva models/baseline.joblib
+uv run python -m src.models.export_onnx  # exporta e quantiza os grafos ONNX
 uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
+
+`--all-extras` é obrigatório: desde a Etapa 4 o engine de inferência é um extra
+por backend (`sklearn` e `onnx`), e um `uv sync` puro não instala nenhum dos
+dois. Detalhes em [`docs/optimization.md`](docs/optimization.md), seção 8.
 
 `src.data.prepare` é idempotente: se os CSVs já existirem e o checksum bater,
 nada é baixado de novo.
@@ -239,8 +248,11 @@ nada é baixado de novo.
 uv run pytest -q
 ```
 
-18 testes cobrindo o contrato da API. Não exigem modelo treinado: a suíte
-ajusta um classificador mínimo em memória e aponta `MODEL_PATH` para ele.
+70 testes. Os de contrato da API rodam **duas vezes cada**, uma por backend de
+serving, através de uma fixture parametrizada — o contrato é a mesma promessa
+independentemente do engine por trás. Não exigem modelo treinado: a suíte ajusta
+um classificador mínimo em memória, exporta esse mesmo modelo para ONNX e aponta
+`MODEL_BACKEND` e `MODEL_PATH` para cada um.
 
 ### 3.5 Benchmark de latência
 
@@ -305,8 +317,8 @@ Workflow em `.github/workflows/ci.yml`, disparado em **push para `main`** e em
 | Job | O que faz | Depende de |
 |---|---|---|
 | `lint` | `ruff check` + `ruff format --check` | — |
-| `test` | os 18 testes do pytest, com cobertura no log | — |
-| `build` | build da imagem Docker, sobe o container e valida `/health` e `/predict` | `lint` e `test` |
+| `test` | os 70 testes do pytest, com cobertura no log | — |
+| `build` | build das **duas** imagens (sklearn e ONNX), sobe as duas e valida `/health`, `/predict`, `/metrics`, a concordância entre backends e o tamanho de cada imagem | `lint` e `test` |
 
 `lint` e `test` rodam em paralelo; `build` só começa quando os dois passam.
 A ordem é intencional: build de imagem é o passo caro, e não faz sentido pagar
@@ -382,9 +394,11 @@ suíte é de **contrato de API**, não de qualidade de modelo — medir contra
 do que sobre o que ela cobre. Os módulos de dados e treino são exercitados de
 ponta a ponta pelo job `build`, que roda o pipeline completo dentro da imagem.
 
-Um dos 18 testes (`test_real_baseline_model_serves_predictions`) é pulado no
-CI: ele exige `models/baseline.joblib`, que não é versionado. No CI o placar é
-**17 passaram, 1 pulado**; localmente, com o modelo treinado, passam os 18.
+Dois dos 70 testes são pulados no CI: `test_real_baseline_model_serves_predictions`
+e `test_real_onnx_model_agrees_with_the_sklearn_baseline`, que exigem
+`models/baseline.joblib` e `models/model.onnx` — artefatos regeneráveis, não
+versionados. No CI o placar é **68 passaram, 2 pulados**; localmente, com os
+artefatos gerados, passam os 70.
 
 ---
 
@@ -435,18 +449,63 @@ Detalhes, queries PromQL e o snapshot do dashboard populado:
 
 ---
 
-## 7. Estrutura do projeto
+## 7. Otimização (Etapa 4, parte 1)
+
+O pipeline foi exportado para ONNX e quantizado, e a API ganhou um segundo
+backend de serving selecionável por `MODEL_BACKEND`. O ganho de inferência era
+esperado como pequeno — o modelo já responde em sub-milissegundo — e **não é
+medido aqui**: isso é a parte 2. O resultado desta parte é o corte da imagem.
+
+```bash
+uv run python -m src.models.export_onnx          # converte, quantiza e valida
+docker build -f Dockerfile.onnx -t tc-fase3-api:onnx .
+MODEL_BACKEND=onnx uv run uvicorn src.api.main:app
+```
+
+| O que | Antes | Depois | Variação |
+|---|---|---|---|
+| Artefato do modelo | 3,96 MiB (joblib) | 1,59 MiB (ONNX quantizado) | **−59,7%** |
+| Imagem de serving | 556 MB | 409 MB | **−147 MB (−26,4%)** |
+| Ambiente Python na imagem | 250 MB | 135 MB | **−46%** |
+
+Saíram do runtime: `sklearn`, `scipy`, `joblib`, `narwhals`, `threadpoolctl`.
+Entraram: `onnxruntime`, `flatbuffers`, `protobuf`. `numpy` fica nos dois.
+
+**Equivalência.** Não é exata, e o número está medido:
+0,79% das predições do test set divergem do sklearn (21 de 2.657). A causa é uma
+limitação real do skl2onnx — ele não consegue representar `stop_words="english"`
+aplicado **antes** da construção de n-gramas, e 71% do vocabulário são bigramas.
+Foi investigada, quantificada e a correção possível (`mincharnum`) foi aplicada;
+a impossível está documentada com o motivo. macro-F1 fica em 0,671 contra 0,671
+do sklearn, bem acima do gate de 0,62.
+
+**Quantização.** A chamada ingênua de `quantize_dynamic` é um **no-op**: o
+skl2onnx emite a regressão logística como `LinearClassifier`, cujos pesos são
+atributos de nó, e o quantizador só reescreve inicializadores de
+`MatMul`/`Gemm`/`Conv`. Com `black_op={"LinearClassifier"}` o grafo é decomposto
+e a quantização passa a cortar 30,9%, sem degradar acurácia.
+
+Detalhes, medições e as decisões descartadas:
+[`docs/optimization.md`](docs/optimization.md).
+
+---
+
+## 8. Estrutura do projeto
 
 ```
 .github/workflows/
   ci.yml                    # CI: lint, testes e build da imagem (Etapa 2)
+Dockerfile                  # runtime sklearn (Etapa 1)
+Dockerfile.onnx             # runtime ONNX, sem sklearn/scipy (Etapa 4)
 src/
   labels.py                 # vocabulário de classes, sem dependências pesadas
   api/main.py               # FastAPI: /predict, /health e /metrics
+  api/backends.py           # backends sklearn e onnx (Etapa 4)
   api/metrics.py            # instrumentação Prometheus (Etapa 3)
   data/download.py          # download do corpus (revisão fixa + checksum)
   data/prepare.py           # dedup, vazamento, split estratificado
   models/baseline.py        # TF-IDF + LogisticRegression
+  models/export_onnx.py     # conversão, quantização e equivalência (Etapa 4)
   experiments/              # comparação de estratégias de rótulo
 airflow/                    # stack do Airflow, DAG de retreino (Etapa 2)
 docker-compose.monitoring.yml   # API + Prometheus + Grafana (Etapa 3)
@@ -458,14 +517,15 @@ scripts/
   benchmark_latency.py      # baseline de latência da Etapa 1
   generate_load.py          # tráfego misto para popular os painéis
   inspect_*.py              # EDA exploratória
-tests/                      # testes de contrato da API e das métricas
+tests/                      # contrato da API (nos dois backends), métricas e backends
 docs/
   dataset-card.md           # fonte, EDA, decisões e limitações do dataset
   airflow-setup.md          # DAG de retreino e quality gate
   monitoring-setup.md       # stack de observabilidade e queries PromQL
   monitoring-dashboard-snapshot.md   # dashboard populado, valores medidos
+  optimization.md           # ONNX, quantização e corte da imagem (Etapa 4)
   _conhecimento/            # transcrições das aulas
-reports/                    # métricas do modelo e de latência
+reports/                    # métricas do modelo, de latência e de equivalência ONNX
 ```
 
 Dados brutos, `data/processed/` e `models/*.joblib` não são versionados — são
@@ -474,7 +534,7 @@ com revisão fixa em vez de versionar parquet) está na seção 7 do dataset car
 
 ---
 
-## 8. Referências
+## 9. Referências
 
 - Enunciado e critérios: [`docs/_conhecimento/07-tech-challenge-fase3.md`](docs/_conhecimento/07-tech-challenge-fase3.md)
 - Mapa de aulas por critério: [`docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md`](docs/_conhecimento/99-MAPA-TECH-CHALLENGE.md)
