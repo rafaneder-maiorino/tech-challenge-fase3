@@ -18,7 +18,11 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-default-groups
+# --extra sklearn: the inference engine is an optional dependency now, one
+# extra per backend, so that Dockerfile.onnx can build the same project
+# without scikit-learn and scipy. Dropping the flag here would produce a
+# runtime with no engine at all.
+RUN uv sync --frozen --no-default-groups --extra sklearn
 
 # --------------------------------------------------------------------------
 # Stage 2: download the pinned corpus and train the baseline
@@ -35,7 +39,9 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --group train
+# Training needs the sklearn extra as well: the corpus preparation and the fit
+# both run against scikit-learn, whatever the runtime ends up serving with.
+RUN uv sync --frozen --no-dev --group train --extra sklearn
 
 COPY src/ ./src/
 # Fetches the pinned dataset revision, verifies checksums, then fits the

@@ -1,0 +1,72 @@
+{
+  "target_opset": 18,
+  "sizes": {
+    "joblib": {
+      "bytes": 4152756,
+      "mib": 3.96,
+      "vs_joblib_pct": 0.0
+    },
+    "onnx": {
+      "bytes": 2421306,
+      "mib": 2.309,
+      "vs_joblib_pct": -41.69
+    },
+    "onnx_quantized": {
+      "bytes": 1672185,
+      "mib": 1.595,
+      "vs_joblib_pct": -59.73
+    }
+  },
+  "equivalence": {
+    "n_samples": 2657,
+    "macro_f1_gate": 0.62,
+    "backends": {
+      "sklearn": {
+        "artifact": "models/baseline.joblib",
+        "metrics": {
+          "accuracy": 0.6699284907790741,
+          "macro_f1": 0.6706725630573338,
+          "weighted_f1": 0.6626591614703979
+        }
+      },
+      "onnx": {
+        "artifact": "models/model.onnx",
+        "metrics": {
+          "accuracy": 0.6699284907790741,
+          "macro_f1": 0.6713321384872297,
+          "weighted_f1": 0.6622914884535391
+        },
+        "vs_sklearn": {
+          "disagreements": 21,
+          "disagreement_rate": 0.007903650733910425,
+          "prob_max_abs_diff": 0.08023068821000418,
+          "prob_mean_abs_diff": 0.0035783557551241985,
+          "prob_p99_abs_diff": 0.02607027353285352
+        }
+      },
+      "onnx_quantized": {
+        "artifact": "models/model.quantized.onnx",
+        "metrics": {
+          "accuracy": 0.6706812194203989,
+          "macro_f1": 0.6720399785259275,
+          "weighted_f1": 0.6629855477920256
+        },
+        "vs_sklearn": {
+          "disagreements": 24,
+          "disagreement_rate": 0.009032743695897629,
+          "prob_max_abs_diff": 0.07834885036515554,
+          "prob_mean_abs_diff": 0.0038527821188360915,
+          "prob_p99_abs_diff": 0.026381635079383098
+        },
+        "vs_onnx": {
+          "disagreements": 5,
+          "disagreement_rate": 0.001881821603312006,
+          "prob_max_abs_diff": 0.012299180030822754,
+          "prob_mean_abs_diff": 0.0011885978747159243,
+          "prob_p99_abs_diff": 0.006142063066363335
+        }
+      }
+    },
+    "gate_passed": true
+  }
+}

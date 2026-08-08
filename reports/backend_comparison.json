@@ -1,0 +1,340 @@
+{
+  "measured_at": "2026-08-08T01:16:30+00:00",
+  "method": {
+    "container_protocol": "Both containers stay up for the entire run, and load is applied to one backend at a time. Keeping them up avoids the drift that a stop/start between measurements would introduce (page cache, CPU frequency, Docker VM state); loading only one at a time avoids the CPU contention that would make the concurrent level measure scheduler pressure instead of the backend. The idle container costs effectively nothing, and its healthcheck is disabled for the run so it cannot spawn an interpreter mid-measurement. Levels are interleaved sklearn-then-onnx so the two sit as close together in time as possible.",
+    "levels": {
+      "pure_inference": "backend.predict() in-process, no HTTP; interleaved rounds",
+      "http_sequential": "one request at a time over HTTP",
+      "http_concurrent": "8 requests in flight over HTTP"
+    },
+    "inference_iterations": 2000,
+    "inference_rounds": 3,
+    "http_requests": 500,
+    "concurrent_requests": 2000,
+    "concurrency": 8,
+    "warmup_discarded": 50,
+    "payload_chars": 1056,
+    "payload_sha256": "51b3174ab8c88e3ecd9ac634d10b3f822699a74ba0909730fd2f4c1de961253b"
+  },
+  "environment": {
+    "machine": "arm64",
+    "processor": "arm",
+    "platform": "macOS-15.5-arm64-arm-64bit",
+    "python_version": "3.11.15"
+  },
+  "targets": {
+    "sklearn": {
+      "url": "http://localhost:8000",
+      "model_backend": "sklearn",
+      "model_path": "/app/models/baseline.joblib",
+      "model_version": "baseline-tfidf-logreg"
+    },
+    "onnx": {
+      "url": "http://localhost:8001",
+      "model_backend": "onnx",
+      "model_path": "/app/models/model.quantized.onnx",
+      "model_version": "baseline-tfidf-logreg-onnx"
+    }
+  },
+  "artifacts": {
+    "sklearn": {
+      "path": "models/baseline.joblib",
+      "present": true,
+      "bytes": 4152756,
+      "mib": 3.96,
+      "sha256": "243f58139476e1b2"
+    },
+    "onnx": {
+      "path": "models/model.quantized.onnx",
+      "present": true,
+      "bytes": 1672185,
+      "mib": 1.595,
+      "sha256": "a1d1966e420d39ef"
+    }
+  },
+  "images": {
+    "sklearn": {
+      "tag": "tc-fase3-api:sklearn",
+      "compressed_bytes": 119143217,
+      "docker_images_size": "556MB"
+    },
+    "onnx": {
+      "tag": "tc-fase3-api:onnx",
+      "compressed_bytes": 92611587,
+      "docker_images_size": "409MB"
+    }
+  },
+  "equivalence_caveat": {
+    "identical_models": false,
+    "explanation": "The two backends do not compute the same function. skl2onnx has no way to remove stop words before n-gram construction, so the ONNX graph misses every bigram that spans a removed stop word -- about 24% of vocabulary bigram occurrences, and 71% of the vocabulary is bigrams. Aggregate quality is indistinguishable (macro-F1 0.6707 vs 0.6720, both far above the 0.62 gate), but 0.79% of test-set predictions differ. This is a latency comparison between two slightly different models, not the same model on two runtimes.",
+    "source": "reports/onnx_equivalence.json",
+    "macro_f1": {
+      "sklearn": 0.6706725630573338,
+      "onnx": 0.6713321384872297,
+      "onnx_quantized": 0.6720399785259275
+    },
+    "quantized_vs_sklearn": {
+      "disagreements": 24,
+      "disagreement_rate": 0.009032743695897629,
+      "prob_max_abs_diff": 0.07834885036515554,
+      "prob_mean_abs_diff": 0.0038527821188360915,
+      "prob_p99_abs_diff": 0.026381635079383098
+    }
+  },
+  "levels": {
+    "a_pure_inference": {
+      "samples": {
+        "sklearn": {
+          "count": 1998,
+          "mean_ms": 0.3426831561253519,
+          "stdev_ms": 0.022868769052610205,
+          "min_ms": 0.32650004141032696,
+          "p50_ms": 0.3392081707715988,
+          "p95_ms": 0.36620814353227615,
+          "p99_ms": 0.3804168663918972,
+          "max_ms": 0.9146251250058413
+        },
+        "onnx": {
+          "count": 1998,
+          "mean_ms": 0.1161032805202512,
+          "stdev_ms": 0.006746136136708033,
+          "min_ms": 0.1127920113503933,
+          "p50_ms": 0.11366698890924454,
+          "p95_ms": 0.13200007379055023,
+          "p99_ms": 0.13829185627400875,
+          "max_ms": 0.24175015278160572
+        }
+      },
+      "comparison": {
+        "p50": {
+          "sklearn_ms": 0.3392,
+          "onnx_ms": 0.1137,
+          "delta_ms": -0.2255,
+          "delta_pct": -66.49
+        },
+        "p95": {
+          "sklearn_ms": 0.3662,
+          "onnx_ms": 0.132,
+          "delta_ms": -0.2342,
+          "delta_pct": -63.95
+        },
+        "p99": {
+          "sklearn_ms": 0.3804,
+          "onnx_ms": 0.1383,
+          "delta_ms": -0.2421,
+          "delta_pct": -63.65
+        },
+        "mean": {
+          "sklearn_ms": 0.3427,
+          "onnx_ms": 0.1161,
+          "delta_ms": -0.2266,
+          "delta_pct": -66.12
+        }
+      }
+    },
+    "b_http_sequential": {
+      "client_latency": {
+        "sklearn": {
+          "count": 500,
+          "mean_ms": 2.0686919284053147,
+          "stdev_ms": 0.2370395004245932,
+          "min_ms": 1.6033330466598272,
+          "p50_ms": 2.0505839493125677,
+          "p95_ms": 2.4996669963002205,
+          "p99_ms": 2.8452081605792046,
+          "max_ms": 3.1121671199798584
+        },
+        "onnx": {
+          "count": 500,
+          "mean_ms": 1.7693159193731844,
+          "stdev_ms": 0.19815120091729302,
+          "min_ms": 1.3995831832289696,
+          "p50_ms": 1.7216249834746122,
+          "p95_ms": 2.1098749712109566,
+          "p99_ms": 2.3818330373615026,
+          "max_ms": 2.733374945819378
+        }
+      },
+      "server_inference": {
+        "sklearn": {
+          "count": 500,
+          "mean_ms": 0.658866,
+          "stdev_ms": 0.07324907438183496,
+          "min_ms": 0.52,
+          "p50_ms": 0.656,
+          "p95_ms": 0.771,
+          "p99_ms": 0.83,
+          "max_ms": 0.865
+        },
+        "onnx": {
+          "count": 500,
+          "mean_ms": 0.325918,
+          "stdev_ms": 0.04954445055868845,
+          "min_ms": 0.241,
+          "p50_ms": 0.323,
+          "p95_ms": 0.407,
+          "p99_ms": 0.421,
+          "max_ms": 0.452
+        }
+      },
+      "throughput_rps": {
+        "sklearn": 480.5,
+        "onnx": 561.4
+      },
+      "comparison": {
+        "p50": {
+          "sklearn_ms": 2.0506,
+          "onnx_ms": 1.7216,
+          "delta_ms": -0.329,
+          "delta_pct": -16.04
+        },
+        "p95": {
+          "sklearn_ms": 2.4997,
+          "onnx_ms": 2.1099,
+          "delta_ms": -0.3898,
+          "delta_pct": -15.59
+        },
+        "p99": {
+          "sklearn_ms": 2.8452,
+          "onnx_ms": 2.3818,
+          "delta_ms": -0.4634,
+          "delta_pct": -16.29
+        },
+        "mean": {
+          "sklearn_ms": 2.0687,
+          "onnx_ms": 1.7693,
+          "delta_ms": -0.2994,
+          "delta_pct": -14.47
+        }
+      },
+      "comparison_server": {
+        "p50": {
+          "sklearn_ms": 0.656,
+          "onnx_ms": 0.323,
+          "delta_ms": -0.333,
+          "delta_pct": -50.76
+        },
+        "p95": {
+          "sklearn_ms": 0.771,
+          "onnx_ms": 0.407,
+          "delta_ms": -0.364,
+          "delta_pct": -47.21
+        },
+        "p99": {
+          "sklearn_ms": 0.83,
+          "onnx_ms": 0.421,
+          "delta_ms": -0.409,
+          "delta_pct": -49.28
+        },
+        "mean": {
+          "sklearn_ms": 0.6589,
+          "onnx_ms": 0.3259,
+          "delta_ms": -0.3329,
+          "delta_pct": -50.53
+        }
+      }
+    },
+    "c_http_concurrent": {
+      "client_latency": {
+        "sklearn": {
+          "count": 2000,
+          "mean_ms": 10.044397140503861,
+          "stdev_ms": 5.891749887198263,
+          "min_ms": 2.604207955300808,
+          "p50_ms": 9.231790900230408,
+          "p95_ms": 16.867582919076085,
+          "p99_ms": 24.588708067312837,
+          "max_ms": 88.23400014080107
+        },
+        "onnx": {
+          "count": 2000,
+          "mean_ms": 9.283367467927746,
+          "stdev_ms": 37.40113583608352,
+          "min_ms": 3.4809159114956856,
+          "p50_ms": 5.444708978757262,
+          "p95_ms": 13.569084228947759,
+          "p99_ms": 53.39554185047746,
+          "max_ms": 628.1257919035852
+        }
+      },
+      "server_inference": {
+        "sklearn": {
+          "count": 2000,
+          "mean_ms": 0.521061,
+          "stdev_ms": 0.06887258522443998,
+          "min_ms": 0.414,
+          "p50_ms": 0.517,
+          "p95_ms": 0.59,
+          "p99_ms": 0.683,
+          "max_ms": 2.164
+        },
+        "onnx": {
+          "count": 2000,
+          "mean_ms": 0.27786849999999996,
+          "stdev_ms": 0.17225264786091837,
+          "min_ms": 0.194,
+          "p50_ms": 0.226,
+          "p95_ms": 0.561,
+          "p99_ms": 1.064,
+          "max_ms": 2.399
+        }
+      },
+      "throughput_rps": {
+        "sklearn": 794.6,
+        "onnx": 859.7
+      },
+      "comparison": {
+        "p50": {
+          "sklearn_ms": 9.2318,
+          "onnx_ms": 5.4447,
+          "delta_ms": -3.7871,
+          "delta_pct": -41.02
+        },
+        "p95": {
+          "sklearn_ms": 16.8676,
+          "onnx_ms": 13.5691,
+          "delta_ms": -3.2985,
+          "delta_pct": -19.56
+        },
+        "p99": {
+          "sklearn_ms": 24.5887,
+          "onnx_ms": 53.3955,
+          "delta_ms": 28.8068,
+          "delta_pct": 117.15
+        },
+        "mean": {
+          "sklearn_ms": 10.0444,
+          "onnx_ms": 9.2834,
+          "delta_ms": -0.761,
+          "delta_pct": -7.58
+        }
+      },
+      "comparison_server": {
+        "p50": {
+          "sklearn_ms": 0.517,
+          "onnx_ms": 0.226,
+          "delta_ms": -0.291,
+          "delta_pct": -56.29
+        },
+        "p95": {
+          "sklearn_ms": 0.59,
+          "onnx_ms": 0.561,
+          "delta_ms": -0.029,
+          "delta_pct": -4.92
+        },
+        "p99": {
+          "sklearn_ms": 0.683,
+          "onnx_ms": 1.064,
+          "delta_ms": 0.381,
+          "delta_pct": 55.78
+        },
+        "mean": {
+          "sklearn_ms": 0.5211,
+          "onnx_ms": 0.2779,
+          "delta_ms": -0.2432,
+          "delta_pct": -46.67
+        }
+      }
+    }
+  }
+}

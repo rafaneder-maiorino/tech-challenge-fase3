@@ -1,0 +1,107 @@
+# ONNX serving image -- Tech Challenge phase 4, optimisation.
+#
+# Same application, same corpus, same fitted model as ./Dockerfile. The only
+# difference is what ends up in the final layer: this runtime carries
+# onnxruntime instead of scikit-learn, so scipy, joblib and threadpoolctl
+# never enter the image at all.
+#
+# The training stage still needs the full scikit-learn stack -- the model is
+# fitted with sklearn and only then exported. That cost stays in a discarded
+# build stage; it is not what ships.
+#
+# Build with:
+#   docker build -f Dockerfile.onnx -t tc-fase3-api:onnx .
+
+ARG PYTHON_VERSION=3.11
+ARG UV_VERSION=0.9.9
+
+# --------------------------------------------------------------------------
+# Stage 1: serving dependencies -- onnxruntime only, no scikit-learn
+# --------------------------------------------------------------------------
+FROM python:${PYTHON_VERSION}-slim AS deps
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /usr/local/bin/uv
+
+ENV UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
+
+WORKDIR /build
+COPY pyproject.toml uv.lock README.md ./
+# The whole point of the phase, in one flag: --extra onnx resolves
+# onnxruntime, --extra sklearn is absent, so scikit-learn and scipy are never
+# downloaded, never unpacked and never copied into the runtime stage.
+RUN uv sync --frozen --no-default-groups --extra onnx
+
+# --------------------------------------------------------------------------
+# Stage 2: fit the model with scikit-learn, then export it to ONNX
+# --------------------------------------------------------------------------
+FROM python:${PYTHON_VERSION}-slim AS trainer
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /usr/local/bin/uv
+
+ENV UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}" \
+    PYTHONPATH=/build
+
+WORKDIR /build
+COPY pyproject.toml uv.lock README.md ./
+# Both extras here: sklearn to fit, onnx because skl2onnx and the quantizer
+# come from onnxruntime. This environment is thrown away after the export.
+RUN uv sync --frozen --no-dev --group train --extra sklearn --extra onnx
+
+COPY src/ ./src/
+# Fetch the pinned corpus, fit the baseline, then convert and quantize. The
+# export step validates all three backends against the held-out test split and
+# fails the build if any of them drops below the macro-F1 gate, so a silently
+# degraded artifact cannot reach a runtime image.
+RUN python -m src.data.prepare \
+    && python -m src.models.baseline \
+    && python -m src.models.export_onnx
+
+# --------------------------------------------------------------------------
+# Stage 3: runtime
+# --------------------------------------------------------------------------
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}" \
+    PYTHONPATH=/app \
+    MODEL_BACKEND=onnx \
+    MODEL_PATH=/app/models/model.onnx \
+    MODEL_VERSION=baseline-tfidf-logreg-onnx \
+    PORT=8000
+
+RUN useradd --create-home --uid 10001 appuser
+
+WORKDIR /app
+COPY --from=deps /opt/venv /opt/venv
+# Both graphs ship: the quantized one is 31% smaller and part 2 of this phase
+# benchmarks them side by side. Together they are ~4 MB, which is noise next
+# to the interpreter layer, and shipping only one would mean rebuilding the
+# image to compare.
+COPY --from=trainer /build/models/model.onnx /app/models/model.onnx
+COPY --from=trainer /build/models/model.quantized.onnx /app/models/model.quantized.onnx
+COPY --from=trainer /build/reports/onnx_equivalence.json /app/reports/onnx_equivalence.json
+COPY src/ /app/src/
+
+RUN chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+# Readiness, not just liveness: a process that is up but could not load the
+# graph reports model_loaded=false and must fail the check.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "\
+import json, sys, urllib.request; \
+r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4); \
+sys.exit(0 if r.status == 200 and json.load(r)['model_loaded'] else 1)"
+
+# A shell is needed so ${PORT} expands when a platform injects it (Cloud Run,
+# Azure Container Apps); 'exec' then replaces it so uvicorn is PID 1 and
+# receives SIGTERM directly on shutdown.
+CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT}"]
