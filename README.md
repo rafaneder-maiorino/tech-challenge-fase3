@@ -581,7 +581,7 @@ ONNX apontado para o grafo *quantizado* (que já vem na imagem). Em outro
 terminal, com a API da seção 3.2 parada:
 
 ```bash
-docker rm -f tc-bench-sk tc-bench-onnx
+docker rm -f tc-bench-sk tc-bench-onnx   # 'No such container' na 1ª vez é normal
 
 docker run -d --name tc-bench-sk   --no-healthcheck -p 8000:8000 \
   tc-fase3-api:latest
