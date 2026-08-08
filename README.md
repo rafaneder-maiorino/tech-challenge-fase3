@@ -7,9 +7,9 @@ serving, CI/CD, orquestração, monitoração e otimização de latência.
 
 **Status:** Etapas 1 a 3 concluídas — decisão arquitetural, API em Docker,
 baseline de latência, CI/CD, DAG de retreino no Airflow e a stack de monitoração
-com Prometheus e Grafana. A Etapa 4 está na parte 1 de 3: o modelo já é servido
-por ONNX quantizado num runtime sem scikit-learn. Faltam o benchmark comparativo
-de latência e o vídeo.
+com Prometheus e Grafana. A Etapa 4 está na parte 2 de 3: o modelo é servido por
+ONNX quantizado num runtime sem scikit-learn, e os dois runtimes já foram
+medidos lado a lado. Falta o vídeo.
 
 | Entrega | Estado |
 |---|---|
@@ -18,7 +18,7 @@ de latência e o vídeo.
 | Etapa 2 — DAG de retreino (Airflow) | ✅ concluída |
 | Etapa 3 — Prometheus + Grafana via Docker Compose | ✅ concluída |
 | Etapa 4 — ONNX, quantização e runtime enxuto (parte 1/3) | ✅ concluída |
-| Etapa 4 — Benchmark comparativo de latência (parte 2/3) | ⏳ pendente |
+| Etapa 4 — Benchmark comparativo de latência (parte 2/3) | ✅ concluída |
 | Etapa 4 — Vídeo de demonstração (parte 3/3) | ⏳ pendente |
 
 ---
@@ -449,27 +449,41 @@ Detalhes, queries PromQL e o snapshot do dashboard populado:
 
 ---
 
-## 7. Otimização (Etapa 4, parte 1)
+## 7. Otimização (Etapa 4, partes 1 e 2)
 
-O pipeline foi exportado para ONNX e quantizado, e a API ganhou um segundo
-backend de serving selecionável por `MODEL_BACKEND`. O ganho de inferência era
-esperado como pequeno — o modelo já responde em sub-milissegundo — e **não é
-medido aqui**: isso é a parte 2. O resultado desta parte é o corte da imagem.
+O pipeline foi exportado para ONNX e quantizado, a API ganhou um segundo backend
+de serving selecionável por `MODEL_BACKEND`, e os dois runtimes foram medidos
+lado a lado.
 
 ```bash
 uv run python -m src.models.export_onnx          # converte, quantiza e valida
 docker build -f Dockerfile.onnx -t tc-fase3-api:onnx .
 MODEL_BACKEND=onnx uv run uvicorn src.api.main:app
+uv run python scripts/compare_backends.py        # comparativo de latência
 ```
 
-| O que | Antes | Depois | Variação |
+| O que | Antes (sklearn) | Depois (ONNX quantizado) | Variação |
 |---|---|---|---|
-| Artefato do modelo | 3,96 MiB (joblib) | 1,59 MiB (ONNX quantizado) | **−59,7%** |
+| **Inferência pura, P50** | 0,339 ms | 0,114 ms | **−66,5%** |
+| Fim a fim sequencial, P50 | 2,051 ms | 1,722 ms | −16,0% |
+| Fim a fim concorrente, P50 | 9,232 ms | 5,445 ms | −41,0% |
+| Fim a fim concorrente, P99 | 24,589 ms | 53,395 ms | **+117,2%** |
+| Throughput concorrente | 794,6 rps | 859,7 rps | +8,2% |
+| Artefato do modelo | 3,96 MiB (joblib) | 1,59 MiB | **−59,7%** |
 | Imagem de serving | 556 MB | 409 MB | **−147 MB (−26,4%)** |
 | Ambiente Python na imagem | 250 MB | 135 MB | **−46%** |
 
 Saíram do runtime: `sklearn`, `scipy`, `joblib`, `narwhals`, `threadpoolctl`.
 Entraram: `onnxruntime`, `flatbuffers`, `protobuf`. `numpy` fica nos dois.
+
+**Latência.** A medição separa três níveis porque a otimização só controla um
+deles. Na **inferência pura** o ganho é de −66% e estável entre execuções. No
+**fim a fim sequencial** o mesmo ganho absoluto (0,33 ms) vale só −16%, porque
+~1,4 ms de HTTP, validação e serialização não mudam. Sob **concorrência 8** a
+fila do threadpool responde por quase toda a latência (9,2 ms de cliente contra
+0,5 ms de inferência), então o ganho de mediana existe mas o P99 **piora** de
+forma reprodutível — quatro execuções deram entre +44% e +117%. ONNX entrega
+mediana e throughput melhores em troca de uma cauda pior sob saturação.
 
 **Equivalência.** Não é exata, e o número está medido:
 0,79% das predições do test set divergem do sklearn (21 de 2.657). A causa é uma
@@ -515,6 +529,7 @@ monitoring/
   grafana/dashboards/       # dashboard versionado, 8 painéis
 scripts/
   benchmark_latency.py      # baseline de latência da Etapa 1
+  compare_backends.py       # comparativo sklearn x onnx, 3 níveis (Etapa 4)
   generate_load.py          # tráfego misto para popular os painéis
   inspect_*.py              # EDA exploratória
 tests/                      # contrato da API (nos dois backends), métricas e backends
@@ -523,9 +538,9 @@ docs/
   airflow-setup.md          # DAG de retreino e quality gate
   monitoring-setup.md       # stack de observabilidade e queries PromQL
   monitoring-dashboard-snapshot.md   # dashboard populado, valores medidos
-  optimization.md           # ONNX, quantização e corte da imagem (Etapa 4)
+  optimization.md           # ONNX, quantização, imagem e latência (Etapa 4)
   _conhecimento/            # transcrições das aulas
-reports/                    # métricas do modelo, de latência e de equivalência ONNX
+reports/                    # métricas do modelo, latência, equivalência e comparativo
 ```
 
 Dados brutos, `data/processed/` e `models/*.joblib` não são versionados — são

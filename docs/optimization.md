@@ -1,23 +1,39 @@
-# Otimização — Etapa 4, parte 1
+# Otimização — Etapa 4, partes 1 e 2
 
-Conversão do pipeline scikit-learn para ONNX, quantização dinâmica e um segundo
-runtime de serving que não carrega scikit-learn nem scipy.
+Conversão do pipeline scikit-learn para ONNX, quantização dinâmica, um segundo
+runtime de serving que não carrega scikit-learn nem scipy, e o comparativo de
+latência entre os dois.
 
-O ganho de **inferência** era esperado como pequeno e não é medido aqui — isso é
-a parte 2. O resultado desta parte é o **corte da imagem**: 556 MB → 409 MB.
+As seções 1 a 9 cobrem a parte 1 (conversão, quantização e imagem); as seções
+10 a 12 cobrem a parte 2 (medição).
 
 ---
 
 ## 1. Resultado em uma tabela
 
-| O que | Antes | Depois | Variação |
+| O que | Antes (sklearn) | Depois (ONNX quantizado) | Variação |
 |---|---|---|---|
-| Artefato do modelo | 3,96 MiB (joblib) | 1,59 MiB (ONNX quantizado) | **−59,7%** |
+| **Inferência pura, P50** | 0,339 ms | 0,114 ms | **−66,5%** |
+| Fim a fim sequencial, P50 | 2,051 ms | 1,722 ms | −16,0% |
+| Fim a fim concorrente, P50 | 9,232 ms | 5,445 ms | −41,0% |
+| Fim a fim concorrente, P99 | 24,589 ms | 53,395 ms | **+117,2%** |
+| Throughput concorrente | 794,6 rps | 859,7 rps | +8,2% |
+| Artefato do modelo | 3,96 MiB (joblib) | 1,59 MiB | **−59,7%** |
 | Imagem de serving | 556 MB | 409 MB | **−147 MB (−26,4%)** |
 | Ambiente Python na imagem | 250 MB | 135 MB | **−46%** |
 | macro-F1 no test set | 0,670673 | 0,672040 | +0,0014 (ruído) |
 
 Nenhum backend ficou abaixo do quality gate de 0,62 herdado da DAG de retreino.
+
+Duas leituras que a tabela exige e a seção 10 detalha. Primeiro, o ganho de
+inferência é grande (−66%) mas **diluído** no fim a fim, porque HTTP,
+validação e fila do threadpool não são tocados pela otimização. Segundo, o P99
+sob concorrência **piorou** de forma reprodutível — é o achado desconfortável
+desta etapa e está documentado como tal, não escondido.
+
+E a ressalva que atravessa tudo: os dois backends não computam exatamente a
+mesma função (seção 3.2). É um comparativo entre dois modelos ligeiramente
+diferentes, não o mesmo modelo em dois runtimes.
 
 ---
 
@@ -377,19 +393,235 @@ no runtime ONNX.
 
 ---
 
-## 10. O que fica para a parte 2
 
-Nada de latência foi medido aqui, de propósito. Os dois runtimes ficam prontos
-para serem comparados lado a lado:
+## 10. Comparativo de latência (parte 2)
 
-- duas imagens que sobem em portas diferentes e reportam `model_backend` em
-  `/health`
-- três artefatos (`joblib`, `onnx`, `onnx` quantizado), todos selecionáveis por
-  `MODEL_PATH`
-- `scripts/benchmark_latency.py` da Etapa 1 e o baseline em
-  `reports/latency_baseline.json` como referência
+A otimização mexe em **uma** coisa: quanto tempo leva para transformar uma
+string num vetor de probabilidades. Medir só o fim a fim enterraria isso dentro
+de parsing de requisição, fila do threadpool e serialização de JSON, e
+reportaria um "ganho" que fala mais da stack web do que do modelo. Por isso a
+medição separa três níveis.
 
-Uma decisão já tomada e que a parte 2 deve validar: o `OnnxBackend` fixa
-`intra_op_num_threads=1` e `inter_op_num_threads=1`. Uma requisição carrega um
-abstract só, então paralelismo intra-op tende a custar hand-off de thread em vez
-de economizar tempo — mas isso é hipótese até ser medido.
+`scripts/compare_backends.py` reaproveita o payload fixo e a definição de
+percentil de `benchmark_latency.py`, então todo número aqui é diretamente
+comparável com `reports/latency_baseline.json` da Etapa 1 — não apenas
+parecido. Resultado completo em
+[`reports/backend_comparison.json`](../reports/backend_comparison.json).
+
+**Condições:** macOS arm64, 8 CPUs, Python 3.11.15, payload de 1.056 caracteres
+(sha256 `51b3174a…`), 50 requisições de warmup descartadas em cada nível,
+2.000 iterações de inferência pura em 3 rodadas alternadas, 500 requisições
+sequenciais, 2.000 requisições a concorrência 8.
+
+### Nível A — inferência pura, sem HTTP
+
+`backend.predict()` chamado direto no processo. É o que a técnica controla.
+
+| | sklearn | ONNX quantizado | delta |
+|---|---|---|---|
+| P50 | 0,339 ms | **0,114 ms** | **−66,5%** |
+| P95 | 0,366 ms | **0,132 ms** | **−64,0%** |
+| P99 | 0,380 ms | **0,138 ms** | **−63,6%** |
+| média | 0,343 ms | **0,116 ms** | **−66,1%** |
+
+Aqui o ganho é grande e estável: quatro execuções independentes deram entre
+−66,5% e −66,9% na mediana. É o número honesto da otimização.
+
+### Nível B — fim a fim, sequencial
+
+Uma requisição por vez, o protocolo da Etapa 1. A tabela de baixo é o mesmo
+conjunto de requisições, mas usando o `latency_ms` que o servidor reporta, que
+cronometra só a chamada `predict()` dentro do handler.
+
+| | sklearn | ONNX quantizado | delta |
+|---|---|---|---|
+| **cliente (fim a fim)** | | | |
+| P50 | 2,051 ms | 1,722 ms | −16,0% |
+| P95 | 2,500 ms | 2,110 ms | −15,6% |
+| P99 | 2,845 ms | 2,382 ms | −16,3% |
+| **servidor (só inferência)** | | | |
+| P50 | 0,656 ms | 0,323 ms | **−50,8%** |
+| P95 | 0,771 ms | 0,407 ms | **−47,2%** |
+| P99 | 0,830 ms | 0,421 ms | **−49,3%** |
+
+A diluição está explícita: os mesmos 0,33 ms economizados valem −51% quando
+medidos na inferência e −16% quando medidos no cliente. O resto da requisição —
+~1,4 ms de HTTP, validação Pydantic e serialização — não mudou, porque não é o
+que a otimização toca.
+
+### Nível C — fim a fim, concorrência 8
+
+O cenário da Etapa 3, onde a fila do threadpool do Starlette domina.
+
+| | sklearn | ONNX quantizado | delta |
+|---|---|---|---|
+| **cliente (fim a fim)** | | | |
+| P50 | 9,232 ms | 5,445 ms | −41,0% |
+| P95 | 16,868 ms | 13,569 ms | −19,6% |
+| P99 | 24,589 ms | 53,395 ms | **+117,2%** |
+| média | 10,044 ms | 9,283 ms | −7,6% |
+| **servidor (só inferência)** | | | |
+| P50 | 0,517 ms | 0,226 ms | −56,3% |
+| P95 | 0,590 ms | 0,561 ms | −4,9% |
+| P99 | 0,683 ms | 1,064 ms | **+55,8%** |
+
+**Throughput** (requisições concluídas por segundo, com a fila sempre cheia):
+
+| | sklearn | ONNX quantizado | delta |
+|---|---|---|---|
+| sequencial | 480,5 rps | 561,4 rps | **+16,8%** |
+| concorrente | 794,6 rps | 859,7 rps | **+8,2%** |
+
+### O P99 sob carga piorou — e não é ruído
+
+A mediana melhora 41%, mas o P99 do ONNX é consistentemente **pior**. Em quatro
+execuções o P99 do cliente ficou em +44%, +78%, +87% e +117%: a direção se
+repete sempre, só a magnitude varia. O mesmo aparece no P99 de inferência pura
+do servidor (+42% a +90%).
+
+Hipóteses testadas e descartadas, medindo em processo com 8 threads contra a
+mesma sessão:
+
+| Configuração | P50 | P99 |
+|---|---|---|
+| sessão única, arena ON (atual) | 0,248 ms | 0,608 ms |
+| sessão única, arena OFF | 0,230 ms | 0,739 ms |
+| sessão por thread | 0,192 ms | 1,054 ms |
+
+Nenhuma corrige a cauda; sessão por thread piora. `intra_op_num_threads` também
+não é o fator — ver seção 10.1.
+
+A explicação mais coerente com os dados é a troca clássica de saturação. O
+onnxruntime libera o GIL e faz trabalho de verdade em C++ paralelamente, então
+entrega **mais throughput** (+8,2%) e mantém a máquina mais quente; o caminho
+do sklearn é dominado por trabalho Python sob o GIL, o que limita a
+concorrência efetiva e produz uma distribuição mais lenta porém mais estreita
+(P99 de inferência de 0,683 ms contra 1,064 ms). Some-se que o gerador de carga
+roda na **mesma máquina de 8 CPUs** que os containers: com 8 requisições em
+voo, cliente e servidor disputam CPU, e o backend mais rápido empurra o sistema
+mais perto do limite.
+
+Isso é uma interpretação, não uma causa comprovada. O que está comprovado é o
+comportamento: **ONNX entrega mediana e throughput melhores em troca de uma
+cauda pior sob saturação.** Para triagem clínica, onde o P99 é o que define a
+experiência do pior caso, isso merece uma decisão explícita antes de um deploy
+com concorrência alta — e um teste de carga em máquina separada do gerador,
+que esta medição não tem.
+
+### 10.1 `intra_op_num_threads=1` — a hipótese da parte 1 estava certa pelo motivo errado
+
+A parte 1 fixou `intra_op_num_threads=1` supondo que "paralelismo intra-op
+tende a custar hand-off de thread". Medido:
+
+| | SEQ P50 | SEQ P99 | CONC(8) P50 | CONC(8) P99 |
+|---|---|---|---|---|
+| `intra=1` | 0,112 ms | 0,136 ms | 0,261 ms | 0,623 ms |
+| `intra=2` | 0,112 ms | 0,136 ms | 0,246 ms | 0,616 ms |
+| `intra=4` | 0,112 ms | 0,135 ms | 0,242 ms | 0,597 ms |
+| padrão do ort | 0,112 ms | 0,134 ms | 0,245 ms | 0,649 ms |
+
+A latência sequencial é **idêntica** em todas as configurações, e as diferenças
+sob concorrência estão dentro do ruído. Não há hand-off custando tempo: o grafo
+é pequeno demais para haver o que paralelizar dentro de uma execução. Manter
+`1` continua sendo a escolha certa — evita que cada sessão suba um pool de
+threads ocioso — mas **não é uma alavanca de latência**, e a justificativa
+escrita na parte 1 estava errada.
+
+### Consolidado
+
+| Dimensão | sklearn | ONNX quantizado | delta |
+|---|---|---|---|
+| Inferência pura, P50 | 0,339 ms | 0,114 ms | **−66,5%** |
+| Fim a fim sequencial, P50 | 2,051 ms | 1,722 ms | −16,0% |
+| Fim a fim concorrente, P50 | 9,232 ms | 5,445 ms | −41,0% |
+| Fim a fim concorrente, P99 | 24,589 ms | 53,395 ms | **+117,2%** |
+| Throughput concorrente | 794,6 rps | 859,7 rps | +8,2% |
+| Artefato | 3,960 MiB | 1,595 MiB | **−59,7%** |
+| Imagem | 556 MB | 409 MB | **−26,4%** |
+
+**Onde a otimização ganhou:** inferência pura (−66%), tamanho de artefato
+(−60%), tamanho de imagem (−26%) e throughput (+8% a +17%).
+
+**Onde não mudou nada:** o custo de HTTP, validação e serialização — ~1,4 ms
+por requisição no nível B, idêntico nos dois backends. E a fila do threadpool,
+que no nível C responde por praticamente toda a latência (9,2 ms de cliente
+contra 0,5 ms de inferência no sklearn). Nenhuma das duas é tocada por
+ONNX ou quantização, e nenhuma quantidade de otimização de modelo as reduziria.
+
+**Onde piorou:** a cauda sob saturação.
+
+### A ressalva que a tabela não mostra
+
+Os dois backends **não computam a mesma função**. O skl2onnx não consegue
+aplicar `stop_words` antes da construção de n-gramas (seção 3.2), então o grafo
+ONNX perde ~24% das ocorrências de bigrama do vocabulário e 0,79% das predições
+do test set diferem. A qualidade agregada é indistinguível — macro-F1 0,6707
+contra 0,6720, ambas muito acima do gate de 0,62 — mas isto é um comparativo de
+latência entre **dois modelos ligeiramente diferentes**, não o mesmo modelo em
+dois runtimes. A ressalva está gravada no próprio
+`reports/backend_comparison.json`, em `equivalence_caveat`, para não se perder
+de vista quando alguém ler só os números.
+
+---
+
+## 11. Como reproduzir o comparativo
+
+O gerador de carga roda na mesma máquina que os containers, então qualquer
+outro processo pesado contamina a medição. A stack de monitoração da Etapa 3
+(o Prometheus raspa a API a cada 5 s) e a do Airflow precisam estar paradas:
+
+```bash
+docker compose -f docker-compose.monitoring.yml down
+docker stop airflow-airflow-scheduler-1 airflow-airflow-webserver-1 airflow-postgres-1
+```
+
+Sobe os dois backends lado a lado. O container ONNX é apontado para o grafo
+**quantizado**, que já vem na imagem — não é preciso rebuild:
+
+```bash
+docker run -d --name tc-bench-sk --no-healthcheck -p 8000:8000 tc-fase3-api:sklearn
+docker run -d --name tc-bench-onnx --no-healthcheck -p 8001:8000 \
+  -e MODEL_PATH=/app/models/model.quantized.onnx tc-fase3-api:onnx
+
+uv run python scripts/compare_backends.py
+```
+
+O script confere via `/health` que cada porta serve o backend e o artefato
+esperados antes de medir, e aborta se não servir — medir o container errado é
+um erro silencioso fácil de cometer.
+
+**Por que os dois containers ficam de pé o tempo todo, e não um de cada vez:**
+derrubar e subir entre as medições introduz variação (page cache, frequência de
+CPU, estado da VM do Docker) exatamente entre os dois números que se quer
+comparar. Manter os dois no ar elimina isso. A carga, porém, é aplicada a **um
+backend por vez** — se os dois fossem saturados juntos, o nível C mediria
+disputa de escalonador, não o backend. O container ocioso custa
+aproximadamente nada, e o healthcheck é desligado com `--no-healthcheck` para
+que ele não suba um interpretador Python no meio de uma medição. Os níveis são
+intercalados sklearn-depois-onnx para que as duas medições fiquem o mais
+próximas possível no tempo.
+
+Ao terminar:
+
+```bash
+docker rm -f tc-bench-sk tc-bench-onnx
+docker start airflow-postgres-1 airflow-airflow-scheduler-1 airflow-airflow-webserver-1
+```
+
+---
+
+## 12. O que fica para a parte 3
+
+O vídeo de demonstração. A medição de latência e o corte de imagem estão
+fechados; o que falta é apresentá-los.
+
+Duas coisas que este comparativo deixou em aberto e que não são bloqueantes:
+
+- **A cauda sob saturação** merece um teste de carga com o gerador em máquina
+  separada dos containers, para separar contenção de CPU cliente/servidor do
+  comportamento real do onnxruntime.
+- **O handler síncrono.** O nível C mostra que a fila responde por ~95% da
+  latência sob concorrência. Tornar `/predict` assíncrono, ou dimensionar o
+  threadpool do Starlette, teria efeito muito maior sobre a latência fim a fim
+  do que qualquer otimização de modelo — mas é outra etapa de trabalho, não
+  esta.
