@@ -19,6 +19,7 @@ SAMPLE_TEXTS = [
 ]
 
 REAL_MODEL_PATH = Path("models/baseline.joblib")
+REAL_ONNX_PATH = Path("models/model.onnx")
 
 
 def test_health_returns_200(client: TestClient) -> None:
@@ -133,7 +134,8 @@ def test_real_baseline_model_serves_predictions(valid_labels: set[int]) -> None:
     """The production artifact loads and answers through the same contract."""
     import os
 
-    previous = os.environ.get("MODEL_PATH")
+    previous = {key: os.environ.get(key) for key in ("MODEL_BACKEND", "MODEL_PATH")}
+    os.environ["MODEL_BACKEND"] = "sklearn"
     os.environ["MODEL_PATH"] = str(REAL_MODEL_PATH)
     try:
         from src.api.main import app
@@ -143,7 +145,62 @@ def test_real_baseline_model_serves_predictions(valid_labels: set[int]) -> None:
             body = real_client.post("/predict", json={"text": SAMPLE_TEXTS[3]}).json()
             assert body["label"] in valid_labels
     finally:
-        if previous is None:
-            os.environ.pop("MODEL_PATH", None)
-        else:
-            os.environ["MODEL_PATH"] = previous
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+@pytest.mark.skipif(
+    not REAL_ONNX_PATH.is_file(),
+    reason="ONNX artifact not present; run uv run python -m src.models.export_onnx",
+)
+def test_real_onnx_model_agrees_with_the_sklearn_baseline(
+    valid_labels: set[int],
+) -> None:
+    """The two production artifacts answer the same way on the same inputs.
+
+    Not a proof of equivalence -- ``reports/onnx_equivalence.json`` measures
+    that over the whole test split, where 0.79% of predictions do differ. This
+    guards the shipped pair against a gross mismatch, such as an ONNX export
+    left stale after the model was retrained.
+    """
+    import os
+
+    def serve(backend: str, path) -> list[dict]:
+        previous = {k: os.environ.get(k) for k in ("MODEL_BACKEND", "MODEL_PATH")}
+        os.environ["MODEL_BACKEND"] = backend
+        os.environ["MODEL_PATH"] = str(path)
+        try:
+            from src.api.main import app
+
+            with TestClient(app) as client:
+                assert client.get("/health").json()["model_backend"] == backend
+                return [
+                    client.post("/predict", json={"text": text}).json()
+                    for text in SAMPLE_TEXTS
+                ]
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    sklearn_results = serve("sklearn", REAL_MODEL_PATH)
+    onnx_results = serve("onnx", REAL_ONNX_PATH)
+
+    for text, from_sklearn, from_onnx in zip(
+        SAMPLE_TEXTS, sklearn_results, onnx_results, strict=True
+    ):
+        assert from_onnx["label"] in valid_labels
+        assert from_onnx["label"] == from_sklearn["label"], text
+        # The envelope is wide on purpose. skl2onnx cannot express
+        # stop_words='english' before n-gram construction, so ONNX misses the
+        # bigrams that span a removed stopword; the measured worst case over
+        # the full test split is 0.0803 (reports/onnx_equivalence.json). These
+        # short crafted sentences are stopword-dense, so they sit near it.
+        assert from_onnx["confidence"] == pytest.approx(
+            from_sklearn["confidence"], abs=0.10
+        ), text
