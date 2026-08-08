@@ -160,10 +160,26 @@ Pré-requisitos: **Docker Desktop**, **uv**, **git** e um **Python do sistema**
 o projeto é provisionado pelo próprio uv).
 
 > **Windows:** onde este README escreve `python3`, use `python`. O interpretador
-> do Windows não instala o alias `python3`.
+> do Windows não instala o alias `python3`. É preciso também o **Docker Desktop
+> com backend WSL2** funcionando — o backend Hyper-V não foi testado.
 
 O corpus é **público** e baixado anonimamente: não é preciso conta nem token do
 Hugging Face em nenhum passo.
+
+### Reprodutibilidade entre sistemas
+
+Validado em **macOS (Apple Silicon)** e **Windows 11**: `uv sync --all-extras`,
+os 68 testes de clone limpo, o ciclo
+`prepare` → `baseline` com **macro-F1 idêntico** (0,6705 no Windows contra
+0,6707 no macOS, diferença de arredondamento), e a API em Docker classificando
+o mesmo laudo como `cardiovascular diseases` nos dois sistemas.
+
+**Não é preciso nenhum cuidado especial ao clonar.** O repositório traz um
+`.gitattributes` que fixa os fins de linha em LF, então o `core.autocrlf=true`
+que o Git para Windows costuma configurar não converte nada. Sem ele, um clone
+no Windows reescreveria 65 arquivos — incluindo `airflow/.env.example`, que o
+container Linux do Airflow lê, onde cada `\r` invisível invalidaria a
+`FERNET_KEY` com um erro que não menciona fim de linha em lugar nenhum.
 
 ### 3.1 Instalar o uv
 
